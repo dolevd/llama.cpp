@@ -96,6 +96,13 @@ export {
 // Model name utilities
 export { normalizeModelName, isValidModelName } from './model-names';
 
+// Notification utilities
+export {
+	requestResponseNotificationPermission,
+	notifyResponseReady,
+	notifyResponseFailed
+} from './notifications';
+
 // Portal utilities
 export { portalToBody } from './portal-to-body';
 

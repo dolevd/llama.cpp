@@ -33,13 +33,17 @@ import {
 	findLeafNode,
 	findMessageById,
 	isAbortError,
-	generateConversationTitle
+	generateConversationTitle,
+	requestResponseNotificationPermission,
+	notifyResponseReady,
+	notifyResponseFailed
 } from '$lib/utils';
 import { classifyContinueIntent } from '$lib/utils/agentic';
 import {
 	MAX_INACTIVE_CONVERSATION_STATES,
 	INACTIVE_CONVERSATION_STATE_MAX_AGE_MS,
 	SYSTEM_MESSAGE_PLACEHOLDER,
+	SETTINGS_KEYS,
 	TITLE_GENERATION
 } from '$lib/constants';
 import type {
@@ -712,6 +716,22 @@ class ChatStore {
 		return this.chatLoadingStates.has(convId) || this.chatStreamingStates.has(convId);
 	}
 
+	private responseNotificationsEnabled(): boolean {
+		return config()[SETTINGS_KEYS.ENABLE_RESPONSE_NOTIFICATIONS] !== false;
+	}
+
+	private requestResponseNotificationPermission(): void {
+		requestResponseNotificationPermission(this.responseNotificationsEnabled());
+	}
+
+	private notifyResponseReady(): void {
+		notifyResponseReady(this.responseNotificationsEnabled());
+	}
+
+	private notifyResponseFailed(): void {
+		notifyResponseFailed(this.responseNotificationsEnabled());
+	}
+
 	hasPendingMessage(convId: string): boolean {
 		return this._pendingMessages.has(convId);
 	}
@@ -963,6 +983,7 @@ class ChatStore {
 
 	async sendMessage(content: string, extras?: DatabaseMessageExtra[]): Promise<void> {
 		if (!content.trim() && (!extras || extras.length === 0)) return;
+		this.requestResponseNotificationPermission();
 		const activeConv = conversationsStore.activeConversation;
 
 		// If agentic loop is running, inject as a steering message instead of starting a new flow
@@ -1321,6 +1342,7 @@ class ChatStore {
 				await this.savePartialResponseIfNeeded(convId);
 				cleanupStreamingState();
 				this.clearPendingMessage(convId);
+				this.notifyResponseFailed();
 
 				const contextInfo = (
 					error as Error & { contextInfo?: { n_prompt_tokens: number; n_ctx: number } }
@@ -1349,6 +1371,9 @@ class ChatStore {
 				perChatOverrides
 			});
 			if (agenticResult.handled) {
+				if (!agenticResult.error && !abortController.signal.aborted) {
+					this.notifyResponseReady();
+				}
 				// Generate LLM based title for new conversations after agentic flow completes
 				if (firstUserMessageContent) {
 					await this.generateTitleWithLLM(firstUserMessageContent, streamedContent, convId);
@@ -1405,6 +1430,7 @@ class ChatStore {
 					conversationsStore.updateMessageAtIndex(idx, uiUpdate);
 					await conversationsStore.updateCurrentNode(currentMessageId);
 					cleanupStreamingState();
+					this.notifyResponseReady();
 					if (onComplete) await onComplete(content);
 					if (isRouterMode()) modelsStore.fetchRouterModels().catch(console.error);
 
@@ -1545,6 +1571,7 @@ class ChatStore {
 	async updateMessage(messageId: string, newContent: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv) return;
+		this.requestResponseNotificationPermission();
 		if (this.isChatLoadingInternal(activeConv.id)) await this.stopGeneration();
 		const result = this.getMessageByIdWithRole(messageId, MessageRole.USER);
 		if (!result) return;
@@ -1588,6 +1615,7 @@ class ChatStore {
 	async regenerateMessage(messageId: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isChatLoadingInternal(activeConv.id)) return;
+		this.requestResponseNotificationPermission();
 		this.cancelPreEncode();
 		const result = this.getMessageByIdWithRole(messageId, MessageRole.ASSISTANT);
 		if (!result) return;
@@ -1618,6 +1646,7 @@ class ChatStore {
 	async regenerateMessageWithBranching(messageId: string, modelOverride?: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isChatLoadingInternal(activeConv.id)) return;
+		this.requestResponseNotificationPermission();
 		this.cancelPreEncode();
 		try {
 			const idx = conversationsStore.findMessageIndex(messageId);
@@ -1810,6 +1839,7 @@ class ChatStore {
 	async continueAssistantMessage(messageId: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isChatLoadingInternal(activeConv.id)) return;
+		this.requestResponseNotificationPermission();
 		const result = this.getMessageByIdWithRole(messageId, MessageRole.ASSISTANT);
 
 		if (!result) return;
@@ -1946,6 +1976,7 @@ class ChatStore {
 						this.setChatLoading(msg.convId, false);
 						this.clearChatStreaming(msg.convId);
 						this.setProcessingState(msg.convId, null);
+						this.notifyResponseReady();
 					},
 					onError: async (error: Error) => {
 						if (isAbortError(error)) {
@@ -1989,6 +2020,7 @@ class ChatStore {
 						this.setChatLoading(msg.convId, false);
 						this.clearChatStreaming(msg.convId);
 						this.setProcessingState(msg.convId, null);
+						this.notifyResponseFailed();
 						this.showErrorDialog({
 							type:
 								error.name === 'TimeoutError' ? ErrorDialogType.TIMEOUT : ErrorDialogType.SERVER,
@@ -2093,6 +2125,7 @@ class ChatStore {
 	): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isChatLoadingInternal(activeConv.id)) return;
+		this.requestResponseNotificationPermission();
 		let result = this.getMessageByIdWithRole(messageId, MessageRole.USER);
 		if (!result) result = this.getMessageByIdWithRole(messageId, MessageRole.SYSTEM);
 		if (!result) return;
