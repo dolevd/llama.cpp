@@ -179,6 +179,34 @@ export class AutoScrollController {
 		this._doStopObserving();
 	}
 
+	pause(): void {
+		this._doStopObserving();
+		this.stopInterval();
+		this._autoScrollEnabled = false;
+		this._lastScrollTop = this._container?.scrollTop ?? 0;
+	}
+
+	syncScrollState(): void {
+		if (!this._container) return;
+
+		this._lastScrollTop = this._container.scrollTop;
+		const { scrollTop, scrollHeight, clientHeight } = this._container;
+		const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+		if (distanceFromBottom < AUTO_SCROLL_AT_BOTTOM_THRESHOLD) {
+			this._userScrolledUp = false;
+			this._autoScrollEnabled = true;
+		} else {
+			this._userScrolledUp = true;
+			this._autoScrollEnabled = false;
+		}
+	}
+
+	resumeObserving(): void {
+		if (this._observerEnabled && this._container && !this._disabled && !this._mutationObserver) {
+			this._doStartObserving();
+		}
+	}
+
 	private _doStartObserving(): void {
 		if (!this._container || this._mutationObserver) return;
 

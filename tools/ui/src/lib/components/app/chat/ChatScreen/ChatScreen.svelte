@@ -13,6 +13,7 @@
 	import { useChatScreenDragAndDrop } from '$lib/hooks/use-chat-screen-drag-and-drop.svelte';
 	import { useChatScreenFileUpload } from '$lib/hooks/use-chat-screen-file-upload.svelte';
 	import { useChatScreenScroll } from '$lib/hooks/use-chat-screen-scroll.svelte';
+	import { useChatScrollPosition } from '$lib/hooks/use-chat-scroll-position.svelte';
 	import { useKeyboardShortcuts } from '$lib/hooks/use-keyboard-shortcuts.svelte';
 	import { device } from '$lib/stores/device.svelte';
 	import { isMobile } from '$lib/stores/viewport.svelte';
@@ -63,6 +64,12 @@
 
 	const autoScroll = createAutoScrollController();
 	const scroll = useChatScreenScroll(autoScroll);
+	const scrollPosition = useChatScrollPosition({
+		autoScroll,
+		getConversationId: () => activeConversation()?.id ?? null,
+		getContainer: () => scroll.chatScrollContainer,
+		getDisableAutoScroll: () => disableAutoScroll
+	});
 	const activeModel = useChatScreenActiveModel();
 	const fileUpload = useChatScreenFileUpload({
 		capabilities: () => ({
@@ -183,6 +190,11 @@
 		await chatStore.addSystemPrompt();
 	}
 
+	function handleWindowKeydown(event: KeyboardEvent) {
+		handleKeydown(event);
+		scrollPosition.handleKeyboardScrollIntent(event);
+	}
+
 	$effect(() => {
 		const shouldDisableAutoScroll =
 			config().disableAutoScroll || (isMobile.current && isCurrentConversationLoading);
@@ -221,9 +233,13 @@
 {/if}
 
 <svelte:window
-	onkeydown={handleKeydown}
+	onkeydown={handleWindowKeydown}
+	onpointerdown={scrollPosition.handlePointerIntent}
+	ontouchstart={scrollPosition.handlePointerIntent}
+	onwheel={scrollPosition.markUserScrollIntent}
 	onscroll={(e) => {
 		scroll.handleScroll(e);
+		scrollPosition.handleScroll();
 		handleMobileScroll();
 		if (e.isTrusted && Date.now() > mobileScrollDownHintLockedUntil) {
 			mobileScrollDownHint = false;
@@ -246,6 +262,7 @@
 		{#if !isEmpty}
 			<ChatMessages
 				messages={activeMessages()}
+				onMessagesReady={scrollPosition.handleMessagesReady}
 				onUserAction={() => {
 					handleSendLikeScroll();
 				}}
