@@ -35,6 +35,8 @@ export interface ChatStreamHost {
 	>;
 	streamConnectionState: StreamConnectionState;
 	getOrCreateAbortController(convId: string): AbortController;
+	notifyResponseFailed(): void;
+	notifyResponseReady(): void;
 	setChatLoading(convId: string, loading: boolean): void;
 	setChatStreaming(
 		convId: string,
@@ -409,10 +411,12 @@ export class ChatStreamManager {
 						timings
 					});
 					cleanup();
+					this.host.notifyResponseReady();
 				},
 				(err: Error) => {
 					console.error('attachServerStream pipe error:', err);
 					cleanup();
+					this.host.notifyResponseFailed();
 				},
 				(chunk: string) => {
 					streamedReasoningContent += chunk;

@@ -50,6 +50,8 @@ export interface ChatFlowsHost {
 	getApiOptions(): Record<string, unknown>;
 	getOrCreateAbortController(convId: string): AbortController;
 	isChatLoadingInternal(convId: string): boolean;
+	notifyResponseFailed(): void;
+	notifyResponseReady(): void;
 	setChatLoading(convId: string, loading: boolean): void;
 	setChatReasoning(convId: string, reasoning: boolean): void;
 	setChatStreaming(
@@ -173,6 +175,7 @@ export class ChatMessageFlows {
 						conversationsStore.updateConversationTimestamp(msg.convId);
 
 						this.host.cleanupStreaming(msg.convId);
+						this.host.notifyResponseReady();
 					},
 					onCompletionId: (id: string) => {
 						if (!id) return;
@@ -226,6 +229,7 @@ export class ChatMessageFlows {
 						});
 
 						this.host.cleanupStreaming(msg.convId);
+						this.host.notifyResponseFailed();
 						this.host.showErrorDialog({
 							message: error.message,
 							type: error.name === 'TimeoutError' ? ErrorDialogType.TIMEOUT : ErrorDialogType.SERVER

@@ -248,6 +248,13 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 				type: SettingsFieldType.CHECKBOX
 			},
 			{
+				defaultValue: true,
+				help: 'Show a browser notification when a response finishes while this page is not visible.',
+				key: SETTINGS_KEYS.ENABLE_RESPONSE_NOTIFICATIONS,
+				label: 'Notify when response finishes',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
 				defaultValue: false,
 				help: 'Always keep the sidebar visible on desktop instead of auto-hiding it.',
 				key: SETTINGS_KEYS.ALWAYS_SHOW_SIDEBAR_ON_DESKTOP,
