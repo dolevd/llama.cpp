@@ -25,6 +25,7 @@
 	import { useChatScreenActiveModel } from '$lib/hooks/use-chat-screen-active-model.svelte';
 	import { useChatScreenDragAndDrop } from '$lib/hooks/use-chat-screen-drag-and-drop.svelte';
 	import { useChatScreenFileUpload } from '$lib/hooks/use-chat-screen-file-upload.svelte';
+	import { useChatScrollPosition } from '$lib/hooks/use-chat-scroll-position.svelte';
 	import { useKeyboardShortcuts } from '$lib/hooks/use-keyboard-shortcuts.svelte';
 	import { createStickToBottom } from '$lib/hooks/use-stick-to-bottom.svelte';
 	import {
@@ -66,6 +67,12 @@
 	// The page is the scroller: it follows new content while the reader sits at
 	// the bottom, and otherwise leaves their position alone.
 	const stick = createStickToBottom();
+	const scrollPosition = useChatScrollPosition({
+		stick,
+		getConversationId: () => conversationsStore.activeConversation?.id ?? null,
+		getContainer: () => document.documentElement,
+		getDisableAutoScroll: () => settingsStore.config.disableAutoScroll
+	});
 	let stickPin: HTMLDivElement | undefined = $state();
 	const activeModel = useChatScreenActiveModel();
 	const fileUpload = useChatScreenFileUpload({
@@ -126,16 +133,12 @@
 		return true;
 	}
 
-	let lastScrolledConversationId: string | null = null;
-
 	// Every navigation lands anew: this screen outlives its routes, so coming
 	// back to the conversation it last landed on (via the new-chat screen)
 	// must not count as already landed. The landing also owns the scroll
 	// position, so SvelteKit's own reset (or restore, on back/forward) would
 	// only move the previous conversation, still on screen, to its top.
 	onNavigate((navigation) => {
-		lastScrolledConversationId = null;
-
 		if (navigation.to?.params?.id) disableScrollHandling();
 	});
 
@@ -145,13 +148,8 @@
 	async function handleMessagesReady(messageCount: number) {
 		if (messageCount === 0) return;
 
-		const id = conversationsStore.activeConversation?.id ?? null;
-
-		if (!id || id === lastScrolledConversationId) return;
-
-		lastScrolledConversationId = id;
 		await tick();
-		stick.scrollToBottom();
+		scrollPosition.handleMessagesReady();
 	}
 
 	/**
@@ -212,6 +210,11 @@
 		await chatStore.addSystemPrompt(draft);
 	}
 
+	function handleWindowKeydown(event: KeyboardEvent) {
+		handleKeydown(event);
+		scrollPosition.handleKeyboardScrollIntent(event);
+	}
+
 	$effect(() => {
 		stick.setEnabled(!settingsStore.config.disableAutoScroll);
 	});
@@ -227,7 +230,13 @@
 	<ChatScreenDragOverlay />
 {/if}
 
-<svelte:window onkeydown={handleKeydown} onscroll={() => stick.handleScroll()} />
+<svelte:window
+	onkeydown={handleWindowKeydown}
+	onpointerdown={scrollPosition.handlePointerIntent}
+	ontouchstart={scrollPosition.handlePointerIntent}
+	onwheel={scrollPosition.markUserScrollIntent}
+	onscroll={scrollPosition.handleScroll}
+/>
 
 {#if isServerLoading}
 	<ServerLoadingSplash />
