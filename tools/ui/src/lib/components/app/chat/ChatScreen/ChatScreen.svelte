@@ -11,12 +11,13 @@
 		ChatScreenStreamResumeStatus,
 		ServerLoadingSplash
 	} from '$lib/components/app';
-	import { LANDING_SETTLE_MAX_MS, LANDING_STABLE_FRAMES, ROUTES } from '$lib/constants';
+	import { ROUTES } from '$lib/constants';
 	import { createAutoScrollController } from '$lib/hooks/use-auto-scroll.svelte';
 	import { useChatScreenActiveModel } from '$lib/hooks/use-chat-screen-active-model.svelte';
 	import { useChatScreenDragAndDrop } from '$lib/hooks/use-chat-screen-drag-and-drop.svelte';
 	import { useChatScreenFileUpload } from '$lib/hooks/use-chat-screen-file-upload.svelte';
 	import { useChatScreenScroll } from '$lib/hooks/use-chat-screen-scroll.svelte';
+	import { useChatScrollPosition } from '$lib/hooks/use-chat-scroll-position.svelte';
 	import { useKeyboardShortcuts } from '$lib/hooks/use-keyboard-shortcuts.svelte';
 	import {
 		chatStore,
@@ -26,7 +27,7 @@
 		settingsStore
 	} from '$lib/stores';
 	import { parseFilesToMessageExtras } from '$lib/utils/browser-only';
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
 	let { showCenteredEmpty = false } = $props();
 
@@ -59,6 +60,12 @@
 
 	const autoScroll = createAutoScrollController();
 	const scroll = useChatScreenScroll(autoScroll);
+	const scrollPosition = useChatScrollPosition({
+		autoScroll,
+		getConversationId: () => conversationsStore.activeConversation?.id ?? null,
+		getContainer: () => scroll.chatScrollContainer,
+		getDisableAutoScroll: () => disableAutoScroll
+	});
 	const activeModel = useChatScreenActiveModel();
 	const fileUpload = useChatScreenFileUpload({
 		activeModelId: () => activeModel.activeModelId,
@@ -130,55 +137,6 @@
 		return true;
 	}
 
-	let lastScrolledConversationId: string | null = null;
-
-	// Lands at the bottom of a conversation the first time its messages
-	// render, whether the route comes from another conversation or from a
-	// non-conversation route. The page keeps growing after the first pin
-	// without DOM mutations (content-visibility size realizations, syntax
-	// highlight passes), so the instant pin repeats every frame until the
-	// height settles, bailing out on user scroll or conversation change.
-	async function handleMessagesReady(messageCount: number) {
-		if (messageCount === 0) return;
-
-		const id = conversationsStore.activeConversation?.id ?? null;
-
-		if (!id || id === lastScrolledConversationId) return;
-
-		lastScrolledConversationId = id;
-		await tick();
-		autoScroll.scrollToBottom();
-
-		const container = scroll.chatScrollContainer;
-
-		if (!container) return;
-
-		const started = performance.now();
-
-		let stableFrames = 0;
-		let lastHeight = container.scrollHeight;
-
-		const settle = () => {
-			if (autoScroll.userScrolledUp) return;
-
-			if (conversationsStore.activeConversation?.id !== id) return;
-
-			autoScroll.scrollToBottom();
-			const height = container.scrollHeight;
-
-			stableFrames = height === lastHeight ? stableFrames + 1 : 0;
-			lastHeight = height;
-
-			if (stableFrames >= LANDING_STABLE_FRAMES) return;
-
-			if (performance.now() - started > LANDING_SETTLE_MAX_MS) return;
-
-			requestAnimationFrame(settle);
-		};
-
-		requestAnimationFrame(settle);
-	}
-
 	function handleSendLikeScroll() {
 		if (!deviceStore.isMobile) {
 			autoScroll.enable();
@@ -237,6 +195,11 @@
 		await chatStore.addSystemPrompt();
 	}
 
+	function handleWindowKeydown(event: KeyboardEvent) {
+		handleKeydown(event);
+		scrollPosition.handleKeyboardScrollIntent(event);
+	}
+
 	$effect(() => {
 		const shouldDisableAutoScroll =
 			settingsStore.config.disableAutoScroll ||
@@ -279,9 +242,13 @@
 {/if}
 
 <svelte:window
-	onkeydown={handleKeydown}
+	onkeydown={handleWindowKeydown}
+	onpointerdown={scrollPosition.handlePointerIntent}
+	ontouchstart={scrollPosition.handlePointerIntent}
+	onwheel={scrollPosition.markUserScrollIntent}
 	onscroll={(e) => {
 		scroll.handleScroll(e);
+		scrollPosition.handleScroll();
 		handleMobileScroll();
 
 		if (e.isTrusted && Date.now() > mobileScrollDownHintLockedUntil) {
@@ -305,7 +272,7 @@
 		{#if !isEmpty}
 			<ChatMessages
 				messages={conversationsStore.activeMessages}
-				onMessagesReady={handleMessagesReady}
+				onMessagesReady={scrollPosition.handleMessagesReady}
 				onUserAction={() => {
 					handleSendLikeScroll();
 				}}
