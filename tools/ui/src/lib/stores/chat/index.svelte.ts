@@ -57,11 +57,30 @@ import {
 	getConversationModel,
 	isAbortError,
 	normalizeModelName,
+	notifyResponseFailed,
+	notifyResponseReady,
+	requestResponseNotificationPermission,
 	sliceAtLastCompaction
 } from '$lib/utils';
 import { SvelteMap } from 'svelte/reactivity';
 
 class ChatStore implements ChatStreamHost, ChatFlowsHost {
+	private responseNotificationsEnabled(): boolean {
+		return settingsStore.config.enableResponseNotifications !== false;
+	}
+
+	private requestResponseNotificationPermission(): void {
+		requestResponseNotificationPermission(this.responseNotificationsEnabled());
+	}
+
+	notifyResponseReady(): void {
+		notifyResponseReady(this.responseNotificationsEnabled());
+	}
+
+	notifyResponseFailed(): void {
+		notifyResponseFailed(this.responseNotificationsEnabled());
+	}
+
 	chatReasoningStates = new SvelteMap<string, boolean>();
 	chatStreamingStates = new SvelteMap<
 		string,
@@ -353,6 +372,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 	}
 
 	async continueAssistantMessage(messageId: string): Promise<void> {
+		this.requestResponseNotificationPermission();
 		return this.flows.continueAssistantMessage(messageId);
 	}
 
@@ -405,6 +425,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		newContent: string,
 		newExtras?: DatabaseMessageExtra[]
 	): Promise<void> {
+		this.requestResponseNotificationPermission();
 		return this.flows.editMessageWithBranching(messageId, newContent, newExtras);
 	}
 
@@ -413,6 +434,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		newContent: string,
 		newExtras?: DatabaseMessageExtra[]
 	): Promise<void> {
+		this.requestResponseNotificationPermission();
 		return this.flows.editUserMessagePreserveResponses(messageId, newContent, newExtras);
 	}
 
@@ -664,10 +686,12 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 	}
 
 	async regenerateMessage(messageId: string): Promise<void> {
+		this.requestResponseNotificationPermission();
 		return this.flows.regenerateMessage(messageId);
 	}
 
 	async regenerateMessageWithBranching(messageId: string, modelOverride?: string): Promise<void> {
+		this.requestResponseNotificationPermission();
 		return this.flows.regenerateMessageWithBranching(messageId, modelOverride);
 	}
 
@@ -722,6 +746,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 	async sendMessage(content: string, extras?: DatabaseMessageExtra[]): Promise<void> {
 		if (!content.trim() && (!extras || extras.length === 0)) return;
+		this.requestResponseNotificationPermission();
 
 		const activeConv = conversationsStore.activeConversation;
 
@@ -1152,6 +1177,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				await this.savePartialResponseIfNeeded(convId);
 				cleanupStreamingState();
 				this.clearPendingMessage(convId);
+				this.notifyResponseFailed();
 
 				const contextInfo = (
 					error as Error & { contextInfo?: { n_prompt_tokens: number; n_ctx: number } }
@@ -1259,6 +1285,9 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			});
 
 			if (agenticResult.handled) {
+				if (!agenticResult.error && !abortController.signal.aborted) {
+					this.notifyResponseReady();
+				}
 				// Generate LLM based title for new conversations after agentic flow completes
 				if (firstUserMessageContent) {
 					await this.generateTitleWithLLM(firstUserMessageContent, streamedContent, convId);
@@ -1313,6 +1342,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 					conversationsStore.updateMessageAtIndex(idx, uiUpdate);
 					await conversationsStore.updateCurrentNode(currentMessageId);
 					cleanupStreamingState();
+					this.notifyResponseReady();
 
 					// Pre-encode conversation in KV cache for faster next turn
 					if (settingsStore.config.preEncodeConversation) {

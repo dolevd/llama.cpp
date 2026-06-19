@@ -129,6 +129,13 @@ export {
 	sidecarFromTag
 } from './sidecars';
 
+// Notification utilities
+export {
+	requestResponseNotificationPermission,
+	notifyResponseReady,
+	notifyResponseFailed
+} from './notifications';
+
 // Portal utilities
 export { portalToBody } from './portal-to-body';
 
