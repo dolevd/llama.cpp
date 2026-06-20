@@ -140,6 +140,15 @@ describe('parseModelId', () => {
 	});
 
 	it('handles real-world examples with quantization in segments', () => {
+		expect(
+			parseModelId('C:\\Test\\models\\gemma-4-26B-A4B-it-UD-Q6_K.gguf')
+		).toMatchObject({
+			activatedParams: 'A4B',
+			modelName: 'gemma-4',
+			orgName: null,
+			params: '26B'
+		});
+
 		expect(parseModelId('meta-llama/Llama-4-Scout-17B-16E-Instruct-Q4_K_M')).toStrictEqual({
 			activatedParams: null,
 			modelName: 'Llama-4-Scout',

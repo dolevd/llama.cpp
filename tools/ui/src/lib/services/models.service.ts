@@ -130,6 +130,7 @@ export class ModelsService {
 	 * @returns Structured {@link ParsedModelId} with all detected fields
 	 */
 	static parseModelId(modelId: string): ParsedModelId {
+		const normalizedModelId = normalizeModelName(modelId);
 		const result: ParsedModelId = {
 			raw: modelId,
 			orgName: null,
@@ -142,7 +143,7 @@ export class ModelsService {
 
 		// strip directory path and weight extension so a bare `-m /path/file.gguf`
 		// parses like a clean repo id; the HF `org/model` form is preserved
-		const source = normalizeModelName(modelId).replace(MODEL_WEIGHT_EXTENSION_RE, '');
+		const source = normalizedModelId.replace(MODEL_WEIGHT_EXTENSION_RE, '');
 
 		// 1. Extract colon-separated quantization (e.g. `model:Q4_K_M`)
 		const colonIdx = source.indexOf(MODEL_ID_QUANTIZATION_SEPARATOR);
