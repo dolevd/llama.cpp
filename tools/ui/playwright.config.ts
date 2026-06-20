@@ -21,11 +21,14 @@ export default defineConfig({
 		baseURL: 'http://localhost:8181',
 		trace: 'on-first-retry'
 	},
-	webServer: {
-		command: 'npm run build && npx http-server ./dist -p 8181',
-		port: 8181,
-		reuseExistingServer: !process.env.CI,
-		timeout: 120000
-	},
+	webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
+		? undefined
+		: {
+				command: 'node tests/e2e/mock-llama-server.mjs --build --dist ./dist --port 8181',
+				port: 8181,
+				timeout: 120000,
+				gracefulShutdown: { signal: 'SIGINT', timeout: 500 },
+				reuseExistingServer: !process.env.CI
+			},
 	workers: process.env.CI ? 1 : undefined
 });
