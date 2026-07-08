@@ -1,5 +1,6 @@
-import { Package, Search, Settings, SquarePen } from '@lucide/svelte';
+import { BookOpenText, Package, Search, Settings, SquarePen } from '@lucide/svelte';
 import { SidebarAction, ToolSource } from '$lib/enums';
+import { ROUTES } from './routes.constants';
 import type { DesktopIconStripItem } from '$lib/types';
 
 export const FORK_TREE_DEPTH_PADDING = 8;
@@ -60,6 +61,7 @@ export const SIDEBAR_ACTIONS_ITEMS: DesktopIconStripItem[] = [
 		keys: ['shift', 'cmd', 'o'],
 		tooltip: 'New chat'
 	},
+	{ icon: BookOpenText, route: ROUTES.NEW_STORY, tooltip: 'Story mode' },
 	{ icon: Search, keys: ['cmd', 'k'], tooltip: 'Search' },
 	{
 		action: SidebarAction.SETTINGS,

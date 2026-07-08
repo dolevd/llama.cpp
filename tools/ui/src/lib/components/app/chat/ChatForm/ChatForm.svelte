@@ -74,6 +74,7 @@
 		disabled?: boolean;
 		isLoading?: boolean;
 		placeholder?: string;
+		requireAttachmentToSubmit?: boolean;
 		showAddButton?: boolean;
 		showModelSelector?: boolean;
 
@@ -102,6 +103,7 @@
 		onUploadedFilesChange,
 		onValueChange,
 		placeholder = 'Type a message...',
+		requireAttachmentToSubmit = false,
 		showAddButton = true,
 		showModelSelector = true,
 		uploadedFiles = $bindable([]),
@@ -216,7 +218,9 @@
 	let hasAttachments = $derived(
 		(attachments && attachments.length > 0) || (uploadedFiles && uploadedFiles.length > 0)
 	);
-	let canSubmit = $derived(value.trim().length > 0 || hasAttachments);
+	let canSubmit = $derived(
+		(value.trim().length > 0 || hasAttachments) && (!requireAttachmentToSubmit || hasAttachments)
+	);
 
 	// Caret offset restored after a renderer swap. Callers that mutate
 	// `value` themselves (e.g. the mention picker) pin the target offset

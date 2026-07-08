@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { goto, replaceState } from '$app/navigation';
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { DialogModelNotAvailable } from '$lib/components/app';
 	import { APP_NAME, ROUTES, URL_PARAMS } from '$lib/constants';
 	import { chatStore, conversationsStore, modelsStore } from '$lib/stores';
+	import { loadConversationForRoute } from '$lib/services/conversation-route.service';
 
 	let chatId = $derived(page.params.id);
 	let currentChatId: string | undefined = undefined;
@@ -83,29 +83,9 @@
 			currentChatId = chatId;
 			urlParamsProcessed = false; // Reset for new chat
 
-			// Skip loading if this conversation is already active (e.g., just created)
-			if (conversationsStore.activeConversation?.id === chatId) {
-				void chatStore.discoverActiveStream(chatId);
-
-				if ((qParam !== null || modelParam !== null) && !urlParamsProcessed) {
-					handleUrlParams();
-				}
-
-				return;
-			}
-
 			(async () => {
-				const success = await conversationsStore.loadConversation(chatId);
-
-				if (!success) {
-					await goto(ROUTES.START);
-
-					return;
-				}
-
-				chatStore.syncLoadingStateForChat(chatId);
-				// server probe (with localStorage fallback) and attach
-				await chatStore.discoverActiveStream(chatId);
+				const result = await loadConversationForRoute(chatId, 'chat', ROUTES.START);
+				if (result !== 'ready') return;
 
 				if ((qParam !== null || modelParam !== null) && !urlParamsProcessed) {
 					await handleUrlParams();

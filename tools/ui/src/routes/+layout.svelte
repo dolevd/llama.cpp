@@ -105,7 +105,7 @@
 		const currentId = page.params.id;
 
 		if (!currentId) {
-			goto(RouterService.chat(allConvs[direction === 1 ? 0 : allConvs.length - 1].id));
+			goto(RouterService.conversation(allConvs[direction === 1 ? 0 : allConvs.length - 1]));
 
 			return;
 		}
@@ -117,7 +117,7 @@
 		const targetIdx = idx + direction;
 
 		if (targetIdx >= 0 && targetIdx < allConvs.length) {
-			goto(RouterService.chat(allConvs[targetIdx].id));
+			goto(RouterService.conversation(allConvs[targetIdx]));
 		} else {
 			conversationsStore.openNewChat();
 		}
@@ -158,7 +158,10 @@
 
 		untrack(() => {
 			if (
-				(page.route.id === '/(chat)' || page.route.id === '/(chat)/chat/[id]') &&
+				(page.route.id === '/(chat)' ||
+					page.route.id === '/(chat)/chat/[id]' ||
+					page.route.id === '/(chat)/story' ||
+					page.route.id === '/(chat)/story/[id]') &&
 				page.status !== 401 &&
 				page.status !== 403
 			) {

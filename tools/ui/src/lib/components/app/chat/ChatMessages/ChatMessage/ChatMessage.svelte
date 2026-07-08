@@ -362,12 +362,11 @@
 			focusMainChatForm();
 		} else if (message.role === MessageRole.USER) {
 			const finalExtras = await getMergedExtras();
-
-			chatActions.editWithBranching(message, editedContent.trim(), finalExtras);
+			await chatActions.editWithBranching(message, editedContent.trim(), finalExtras);
 		} else {
 			// For assistant messages, preserve exact content including trailing whitespace
 			// This is important for the Continue feature to work properly
-			chatActions.editWithReplacement(message, editedContent, shouldBranchAfterEdit);
+			await chatActions.editWithReplacement(message, editedContent, shouldBranchAfterEdit);
 		}
 
 		isEditing = false;
@@ -379,8 +378,7 @@
 		if (message.role === MessageRole.USER) {
 			// For user messages, trim to avoid accidental whitespace
 			const finalExtras = await getMergedExtras();
-
-			chatActions.editUserMessagePreserveResponses(message, editedContent.trim(), finalExtras);
+			await chatActions.editUserMessagePreserveResponses(message, editedContent.trim(), finalExtras);
 		}
 
 		isEditing = false;

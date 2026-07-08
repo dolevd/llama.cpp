@@ -421,6 +421,7 @@ export class DatabaseService {
 				const newConv: DatabaseConversation = {
 					currNode: lastClonedMessage.id,
 					cwd: sourceConv.cwd,
+					mode: sourceConv.mode,
 					forkedFromConversationId: sourceConvId,
 					id: newConvId,
 					lastModified: Date.now(),

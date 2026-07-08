@@ -11,7 +11,6 @@
 		ChatScreenStreamResumeStatus,
 		ServerLoadingSplash
 	} from '$lib/components/app';
-	import { ROUTES } from '$lib/constants';
 	import { createAutoScrollController } from '$lib/hooks/use-auto-scroll.svelte';
 	import { useChatScreenActiveModel } from '$lib/hooks/use-chat-screen-active-model.svelte';
 	import { useChatScreenDragAndDrop } from '$lib/hooks/use-chat-screen-drag-and-drop.svelte';
@@ -26,10 +25,39 @@
 		serverStore,
 		settingsStore
 	} from '$lib/stores';
+	import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types';
 	import { parseFilesToMessageExtras } from '$lib/utils/browser-only';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, type Snippet } from 'svelte';
 
-	let { showCenteredEmpty = false } = $props();
+	let {
+		composerDisabled = false,
+		draftKey,
+		greetingDescription,
+		greetingTitle,
+		hideComposer = false,
+		initialMessage = '',
+		messageAddons,
+		onSend,
+		onStop,
+		placeholder,
+		requireAttachmentToSubmit = false,
+		resetKey = 'chat',
+		showCenteredEmpty = false
+	} = $props<{
+		composerDisabled?: boolean;
+		draftKey?: string;
+		greetingDescription?: string;
+		greetingTitle?: string;
+		hideComposer?: boolean;
+		initialMessage?: string;
+		messageAddons?: Snippet<[DatabaseMessage]>;
+		onSend?: (message: string, extras?: DatabaseMessageExtra[]) => Promise<void> | void;
+		onStop?: () => Promise<void> | void;
+		placeholder?: string;
+		requireAttachmentToSubmit?: boolean;
+		resetKey?: string;
+		showCenteredEmpty?: boolean;
+	}>();
 
 	let disableAutoScroll = $derived(
 		Boolean(settingsStore.config.disableAutoScroll) || deviceStore.isMobile
@@ -38,7 +66,9 @@
 	let mobileScrollDownHint = $state(false);
 	let mobileScrollDownHintLockedUntil = $state(0);
 	let emptyFileNames = $state<string[]>([]);
-	let initialMessage = $state('');
+	let formInitialMessage = $state('');
+	let previousInitialMessage = $state('');
+	let previousResetKey = $state('');
 	let showDeleteDialog = $state(false);
 	let showEmptyFileDialog = $state(false);
 	let isEmpty = $derived(
@@ -132,7 +162,11 @@
 
 		handleSendLikeScroll();
 
-		await chatStore.sendMessage(message, result?.extras);
+		if (onSend) {
+			await onSend(message, result?.extras);
+		} else {
+			await chatStore.sendMessage(message, result?.extras);
+		}
 
 		return true;
 	}
@@ -212,12 +246,29 @@
 		}
 	});
 
+	$effect(() => {
+		if (resetKey !== previousResetKey) {
+			previousResetKey = resetKey;
+			formInitialMessage = initialMessage;
+			fileUpload.uploadedFiles = [];
+		}
+	});
+
+	$effect(() => {
+		if (initialMessage !== previousInitialMessage) {
+			previousInitialMessage = initialMessage;
+			formInitialMessage = initialMessage;
+		}
+	});
+
 	onMount(() => {
 		const pendingDraft = chatStore.consumePendingDraft();
 
 		if (pendingDraft) {
-			initialMessage = pendingDraft.message;
+			formInitialMessage = pendingDraft.message;
 			fileUpload.uploadedFiles = pendingDraft.files;
+		} else {
+			formInitialMessage = initialMessage;
 		}
 
 		autoScroll.startObserving();
@@ -276,7 +327,13 @@
 				onUserAction={() => {
 					handleSendLikeScroll();
 				}}
-			/>
+			>
+				{#snippet afterMessage(message)}
+					{#if messageAddons}
+						{@render messageAddons(message)}
+					{/if}
+				{/snippet}
+			</ChatMessages>
 		{/if}
 
 		<div
@@ -296,7 +353,7 @@
 				isEmpty ? 'md:translate-y-[calc(-50dvh+8rem)] 2xl:translate-y-[calc(-50dvh+5rem)]' : ''
 			]}
 		>
-			<ChatScreenGreeting {isEmpty} />
+			<ChatScreenGreeting {isEmpty} title={greetingTitle} description={greetingDescription} />
 
 			<ChatScreenServerError />
 
@@ -305,7 +362,7 @@
 			{/if}
 
 			<div class="pointer-events-none flex flex-col gap-6 items-center w-full">
-				{#if (deviceStore.isMobile ? mobileScrollDownHint || isMobileUserScrolledUp : autoScroll.userScrolledUp) && page.url.hash.includes(ROUTES.CHAT) && page.params.id}
+				{#if (deviceStore.isMobile ? mobileScrollDownHint || isMobileUserScrolledUp : autoScroll.userScrolledUp) && page.params.id}
 					<ChatScreenActionScrollDown
 						onclick={() => {
 							mobileScrollDownHint = false;
@@ -318,18 +375,23 @@
 				{/if}
 			</div>
 
-			<ChatScreenForm
-				bind:uploadedFiles={fileUpload.uploadedFiles}
-				class="pointer-events-auto conversation-chat-form"
-				disabled={hasPropsError || chatStore.isEditing()}
-				{initialMessage}
-				isLoading={isCurrentConversationLoading}
-				onFileRemove={fileUpload.handleFileRemove}
-				onFileUpload={fileUpload.handleFileUpload}
-				onSend={handleSendMessage}
-				onStop={() => chatStore.stopGeneration()}
-				onSystemPromptAdd={handleSystemPromptAdd}
-			/>
+			{#if !hideComposer}
+				<ChatScreenForm
+					bind:uploadedFiles={fileUpload.uploadedFiles}
+					class="pointer-events-auto conversation-chat-form"
+					disabled={hasPropsError || chatStore.isEditing() || composerDisabled}
+					{draftKey}
+					initialMessage={formInitialMessage}
+					isLoading={isCurrentConversationLoading}
+					onFileRemove={fileUpload.handleFileRemove}
+					onFileUpload={fileUpload.handleFileUpload}
+					onSend={handleSendMessage}
+					onStop={() => (onStop ? onStop() : chatStore.stopGeneration())}
+					onSystemPromptAdd={handleSystemPromptAdd}
+					{placeholder}
+					{requireAttachmentToSubmit}
+				/>
+			{/if}
 		</div>
 	</div>
 {/if}

@@ -11,11 +11,45 @@ export interface McpServerOverride {
 	enabled: boolean;
 }
 
+export type ConversationMode = 'chat' | 'story';
+
+export type StoryPhase =
+	| 'draft'
+	| 'outline_generating'
+	| 'awaiting_approval'
+	| 'generating'
+	| 'complete'
+	| 'stopped'
+	| 'error';
+
+export interface StoryChapterSummary {
+	title: string;
+	summary: string;
+}
+
+export interface StoryMetadata {
+	approvedAt?: number;
+	chapterSummaries?: StoryChapterSummary[];
+	currentChapterIndex?: number;
+	error?: string;
+	initialAssistantMessageId?: string;
+	initialPrompt?: string;
+	initialUserMessageId?: string;
+	outlineText?: string;
+	phase: StoryPhase;
+	summary?: string;
+	title?: string;
+	updatedAt: number;
+}
+
+export type MessageRequestProfile = { kind: 'story_outline' };
+
 export interface DatabaseConversation {
 	currNode: string | null;
 	id: string;
 	lastModified: number;
 	name: string;
+	mode?: ConversationMode;
 	/** @deprecated See {@link McpServerOverride}. Kept on rows for downgrade compatibility. */
 	mcpServerOverrides?: McpServerOverride[];
 	thinkingEnabled?: boolean;
@@ -27,6 +61,7 @@ export interface DatabaseConversation {
 	disabledToolCategories?: ToolSource[];
 	forkedFromConversationId?: string;
 	pinned?: boolean;
+	story?: StoryMetadata;
 }
 
 export interface DatabaseMessageExtraAudioFile {
@@ -134,6 +169,7 @@ export interface DatabaseMessage {
 	toolCwd?: string;
 	/** Internal flag marking a UI-generated message (e.g. a cwd change). The row is sent to the model as a "user" turn so chat templates accept it; the flag is only read by the renderer. */
 	isSynthetic?: boolean;
+	requestProfile?: MessageRequestProfile;
 	children: string[];
 	extra?: DatabaseMessageExtra[];
 	timings?: ChatMessageTimings;

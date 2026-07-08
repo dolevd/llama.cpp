@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ChatScreen, ChatTabs } from '$lib/components/app';
+	import { ChatScreen, ChatTabs, StoryScreen } from '$lib/components/app';
 	import { NEW_CHAT_TAB_ID } from '$lib/constants';
+	import { RouterService } from '$lib/services/router.service';
 	import { settingsStore, tabsStore } from '$lib/stores';
 
 	let { children } = $props();
 
 	// the new-chat screen is the bare `#/` route (no conversation id)
 	let showCenteredEmpty = $derived(!page.params.id);
+	let isStoryRoute = $derived(RouterService.isStoryRoute(page.route.id));
 
 	let showTabs = $derived(
 		Boolean(settingsStore.config.conversationTabs) &&
@@ -28,7 +30,11 @@
 		<ChatTabs />
 	{/if}
 
-	<ChatScreen {showCenteredEmpty} />
+	{#if isStoryRoute}
+		<StoryScreen {showCenteredEmpty} />
+	{:else}
+		<ChatScreen {showCenteredEmpty} />
+	{/if}
 </div>
 
 {@render children?.()}
