@@ -6,16 +6,51 @@ export interface McpServerOverride {
 	enabled: boolean;
 }
 
+export type ConversationMode = 'chat' | 'story';
+
+export type StoryPhase =
+	| 'draft'
+	| 'outline_generating'
+	| 'awaiting_approval'
+	| 'generating'
+	| 'complete'
+	| 'stopped'
+	| 'error';
+
+export interface StoryChapterSummary {
+	title: string;
+	summary: string;
+}
+
+export interface StoryMetadata {
+	approvedAt?: number;
+	chapterSummaries?: StoryChapterSummary[];
+	currentChapterIndex?: number;
+	error?: string;
+	initialAssistantMessageId?: string;
+	initialPrompt?: string;
+	initialUserMessageId?: string;
+	outlineText?: string;
+	phase: StoryPhase;
+	summary?: string;
+	title?: string;
+	updatedAt: number;
+}
+
+export type MessageRequestProfile = { kind: 'story_outline' };
+
 export interface DatabaseConversation {
 	currNode: string | null;
 	id: string;
 	lastModified: number;
 	name: string;
+	mode?: ConversationMode;
 	mcpServerOverrides?: McpServerOverride[];
 	thinkingEnabled?: boolean;
 	reasoningEffort?: ReasoningEffort;
 	forkedFromConversationId?: string;
 	pinned?: boolean;
+	story?: StoryMetadata;
 }
 
 export interface DatabaseMessageExtraAudioFile {
@@ -119,6 +154,7 @@ export interface DatabaseMessage {
 	completionId?: string;
 	/** Tool call ID for tool result messages (role: 'tool') */
 	toolCallId?: string;
+	requestProfile?: MessageRequestProfile;
 	children: string[];
 	extra?: DatabaseMessageExtra[];
 	timings?: ChatMessageTimings;

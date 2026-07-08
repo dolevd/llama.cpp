@@ -43,6 +43,11 @@
 	let dropdownOpen = $state(false);
 
 	let isLoading = $derived(getAllLoadingChats().includes(conversation.id));
+	let parentConversation = $derived(
+		conversationsStore.conversations.find(
+			(parentConversation) => parentConversation.id === conversation.forkedFromConversationId
+		)
+	);
 
 	function handleEdit(event: Event) {
 		event.stopPropagation();
@@ -129,7 +134,9 @@
 					{#snippet child({ props })}
 						<a
 							{...props}
-							href={RouterService.chat(conversation.forkedFromConversationId)}
+							href={parentConversation
+								? RouterService.conversation(parentConversation)
+								: RouterService.chat(conversation.forkedFromConversationId)}
 							class="flex shrink-0 items-center text-muted-foreground transition-colors hover:text-foreground"
 						>
 							<GitBranch class="h-3.5 w-3.5" />

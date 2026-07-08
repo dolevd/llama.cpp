@@ -19,6 +19,10 @@ export const ROUTES = {
 	NEW_CHAT: `?${NEW_CHAT_PARAM}=true#/`,
 	/** Chat base — for dynamic chat URLs use RouterService. */
 	CHAT: '#/chat',
+	/** New story — story mode start screen. */
+	NEW_STORY: '#/story',
+	/** Story base — for dynamic story URLs use RouterService. */
+	STORY: '#/story',
 	/** MCP servers. */
 	MCP_SERVERS: '#/mcp-servers',
 	/** Settings base — for dynamic settings URLs use RouterService. */

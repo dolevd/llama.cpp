@@ -2,7 +2,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import { findDescendantMessages, uuid, filterByLeafNodeId } from '$lib/utils';
 import { IDXDB_TABLES, IDXDB_STORES, STORAGE_APP_NAME } from '$lib/constants';
 import { MessageRole } from '$lib/enums';
-import type { McpServerOverride } from '$lib/types/database';
+import type { ConversationMode, McpServerOverride } from '$lib/types/database';
 
 class LlamaUiDatabase extends Dexie {
 	[IDXDB_TABLES.conversations]!: EntityTable<DatabaseConversation, string>;
@@ -32,12 +32,16 @@ export class DatabaseService {
 	 * @param name - Name of the conversation
 	 * @returns The created conversation
 	 */
-	static async createConversation(name: string): Promise<DatabaseConversation> {
+	static async createConversation(
+		name: string,
+		mode: ConversationMode = 'chat'
+	): Promise<DatabaseConversation> {
 		const conversation: DatabaseConversation = {
 			id: uuid(),
 			name,
 			lastModified: Date.now(),
-			currNode: ''
+			currNode: '',
+			mode
 		};
 
 		await db[IDXDB_TABLES.conversations].add(conversation);
@@ -509,6 +513,7 @@ export class DatabaseService {
 					name: options.name,
 					lastModified: Date.now(),
 					currNode: lastClonedMessage.id,
+					mode: sourceConv.mode,
 					forkedFromConversationId: sourceConvId,
 					mcpServerOverrides: sourceConv.mcpServerOverrides
 						? sourceConv.mcpServerOverrides.map((o: McpServerOverride) => ({

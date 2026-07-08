@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { goto, replaceState } from '$app/navigation';
+	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { afterNavigate } from '$app/navigation';
 	import { DialogModelNotAvailable } from '$lib/components/app';
 	import { APP_NAME, ROUTES } from '$lib/constants';
+	import { loadConversationForRoute } from '$lib/services/conversation-route.service';
 	import { chatStore } from '$lib/stores/chat.svelte';
-	import { conversationsStore, activeConversation } from '$lib/stores/conversations.svelte';
+	import { activeConversation } from '$lib/stores/conversations.svelte';
 	import { modelsStore, modelOptions } from '$lib/stores/models.svelte';
 
 	let chatId = $derived(page.params.id);
@@ -81,24 +82,9 @@
 			currentChatId = chatId;
 			urlParamsProcessed = false; // Reset for new chat
 
-			// Skip loading if this conversation is already active (e.g., just created)
-			if (activeConversation()?.id === chatId) {
-				void chatStore.discoverActiveStream(chatId);
-				if ((qParam !== null || modelParam !== null) && !urlParamsProcessed) {
-					handleUrlParams();
-				}
-				return;
-			}
-
 			(async () => {
-				const success = await conversationsStore.loadConversation(chatId);
-				if (!success) {
-					await goto(ROUTES.START);
-					return;
-				}
-				chatStore.syncLoadingStateForChat(chatId);
-				// server probe (with localStorage fallback) and attach
-				await chatStore.discoverActiveStream(chatId);
+				const result = await loadConversationForRoute(chatId, 'chat', ROUTES.START);
+				if (result !== 'ready') return;
 
 				if ((qParam !== null || modelParam !== null) && !urlParamsProcessed) {
 					await handleUrlParams();

@@ -2,10 +2,16 @@
 	import { serverStore } from '$lib/stores/server.svelte';
 
 	interface Props {
+		description?: string;
 		isEmpty: boolean;
+		title?: string;
 	}
 
-	let { isEmpty = false }: Props = $props();
+	let { description, isEmpty = false, title = 'Hello there' }: Props = $props();
+
+	let defaultDescription = $derived(
+		`${serverStore.props?.modalities?.audio ? 'Record audio, type a message ' : 'Type a message'} or upload files to get started`
+	);
 </script>
 
 <div
@@ -14,10 +20,11 @@
 		isEmpty && 'mb-[calc(50dvh-8rem)] md:mb-6 pointer-events-auto block!'
 	]}
 >
-	<h1 class="mb-2 text-2xl font-semibold tracking-tight md:text-3xl">Hello there</h1>
+	<h1 class="mb-2 text-2xl font-semibold tracking-tight md:text-3xl">
+		{title}
+	</h1>
 
 	<p class="text-muted-foreground md:text-lg">
-		{serverStore.props?.modalities?.audio ? 'Record audio, type a message ' : 'Type a message'} or upload
-		files to get started
+		{description ?? defaultDescription}
 	</p>
 </div>

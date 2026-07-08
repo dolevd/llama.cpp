@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { beforeNavigate, afterNavigate } from '$app/navigation';
+	import type { Snippet } from 'svelte';
 	import { ChatMessage, ChatMessageUserPending } from '$lib/components/app';
 	import { setChatActionsContext } from '$lib/contexts';
 	import { MessageRole } from '$lib/enums';
@@ -27,12 +28,13 @@
 	} from '$lib/utils';
 
 	interface Props {
+		afterMessage?: Snippet<[DatabaseMessage]>;
 		messages?: DatabaseMessage[];
 		onUserAction?: () => void;
 		onMessagesReady?: (messageCount: number) => void;
 	}
 
-	let { messages = [], onUserAction, onMessagesReady }: Props = $props();
+	let { afterMessage, messages = [], onUserAction, onMessagesReady }: Props = $props();
 
 	let allConversationMessages = $state<DatabaseMessage[]>([]);
 	let isVisible = $state(false);
@@ -287,6 +289,10 @@
 			{nextAssistantMessage}
 			{siblingInfo}
 		/>
+
+		{#if afterMessage}
+			{@render afterMessage(message)}
+		{/if}
 	{/each}
 
 	{#if activeConversation() && agenticPendingSteeringMessageContent(activeConversation()!.id)}

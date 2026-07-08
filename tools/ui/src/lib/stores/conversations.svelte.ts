@@ -26,7 +26,7 @@ import { MigrationService } from '$lib/services/migration.service';
 import { config } from '$lib/stores/settings.svelte';
 import { mcpStore } from '$lib/stores/mcp.svelte';
 import { filterByLeafNodeId, findLeafNode, generateConversationTitle } from '$lib/utils';
-import type { McpServerOverride } from '$lib/types/database';
+import type { ConversationMode, McpServerOverride, StoryMetadata } from '$lib/types/database';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import {
 	MessageRole,
@@ -239,9 +239,14 @@ class ConversationsStore {
 	 * @param name - Optional name for the conversation
 	 * @returns The ID of the created conversation
 	 */
-	async createConversation(name?: string): Promise<string> {
-		const conversationName = name || `Chat ${new Date().toLocaleString()}`;
-		const conversation = await DatabaseService.createConversation(conversationName);
+	async createConversation(
+		name?: string,
+		options: { mode?: ConversationMode } = {}
+	): Promise<string> {
+		const mode = options.mode ?? 'chat';
+		const conversationName =
+			name || `${mode === 'story' ? 'Story' : 'Chat'} ${new Date().toLocaleString()}`;
+		const conversation = await DatabaseService.createConversation(conversationName, mode);
 
 		// No MCP override list is seeded: getAllMcpServerOverrides resolves
 		// servers without a per-conversation override to `mcpServers[i].enabled`,
@@ -264,7 +269,7 @@ class ConversationsStore {
 		this.activeConversation = conversation;
 		this.activeMessages = [];
 
-		await goto(RouterService.chat(conversation.id));
+		await goto(RouterService.conversation(conversation));
 
 		return conversation.id;
 	}
@@ -457,6 +462,25 @@ class ConversationsStore {
 		}
 	}
 
+	async updateConversationStory(convId: string, story: StoryMetadata | undefined): Promise<void> {
+		try {
+			await DatabaseService.updateConversation(convId, { story });
+
+			const convIndex = this.conversations.findIndex((c) => c.id === convId);
+
+			if (convIndex !== -1) {
+				this.conversations[convIndex].story = story;
+				this.conversations = [...this.conversations];
+			}
+
+			if (this.activeConversation?.id === convId) {
+				this.activeConversation = { ...this.activeConversation, story };
+			}
+		} catch (error) {
+			console.error('Failed to update story metadata:', error);
+		}
+	}
+
 	/**
 	 * Toggles the pinned status of a conversation.
 	 * @param convId - The conversation ID to toggle
@@ -630,8 +654,10 @@ class ConversationsStore {
 	 * one entry per configured server, resolved per server. The stored
 	 * per-conversation list is sparse and only holds explicit toggles.
 	 */
-	getAllMcpServerOverrides(): McpServerOverride[] {
-		const overrides = this.activeConversation?.mcpServerOverrides;
+	getAllMcpServerOverrides(
+		conversation: DatabaseConversation | null = this.activeConversation
+	): McpServerOverride[] {
+		const overrides = conversation?.mcpServerOverrides;
 		return mcpStore.getServers().map((s) => {
 			const override = overrides?.find((o: McpServerOverride) => o.serverId === s.id);
 			return { serverId: s.id, enabled: override?.enabled ?? s.enabled };
@@ -832,7 +858,7 @@ class ConversationsStore {
 
 			this.conversations = [newConv, ...this.conversations];
 
-			await goto(RouterService.chat(newConv.id));
+			await goto(RouterService.conversation(newConv));
 
 			toast.success('Conversation forked');
 

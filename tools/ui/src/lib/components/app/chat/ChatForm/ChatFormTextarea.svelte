@@ -32,6 +32,13 @@
 		}
 	});
 
+	$effect(() => {
+		if (textareaElement) {
+			void value;
+			autoResizeTextarea(textareaElement);
+		}
+	});
+
 	// Expose the textarea element for external access
 	export function getElement() {
 		return textareaElement;

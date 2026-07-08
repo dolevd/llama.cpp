@@ -52,17 +52,17 @@
 		}
 	}
 
-	function handleSubmit() {
+	async function handleSubmit() {
 		if (!canSubmit) return;
 
 		if (isUserMessage && saveWithoutRegenerate && editCtx.showSaveOnlyOption) {
-			editCtx.saveOnly();
+			await editCtx.saveOnly();
 		} else {
 			if (isAssistantMessage && editCtx.setShouldBranchAfterEdit) {
 				editCtx.setShouldBranchAfterEdit(branchAfterEdit);
 			}
 
-			editCtx.save();
+			await editCtx.save();
 		}
 
 		saveWithoutRegenerate = false;

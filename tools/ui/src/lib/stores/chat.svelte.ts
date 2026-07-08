@@ -36,7 +36,9 @@ import {
 	generateConversationTitle,
 	requestResponseNotificationPermission,
 	notifyResponseReady,
-	notifyResponseFailed
+	notifyResponseFailed,
+	resolveChatRequestProfile,
+	type ResolvedRequestProfile
 } from '$lib/utils';
 import { classifyContinueIntent } from '$lib/utils/agentic';
 import {
@@ -54,10 +56,12 @@ import type {
 } from '$lib/types/chat';
 import type {
 	ApiChatMessageData,
+	ApiChatCompletionTool,
 	ApiProcessingState,
 	ApiStreamSession,
 	DatabaseMessage,
-	DatabaseMessageExtra
+	DatabaseMessageExtra,
+	MessageRequestProfile
 } from '$lib/types';
 import {
 	ContinueIntentKind,
@@ -70,6 +74,32 @@ import {
 
 interface ConversationStateEntry {
 	lastAccessed: number;
+}
+
+interface SendMessageOptions {
+	conversationId?: string;
+	disableAgentic?: boolean;
+	mode?: 'chat' | 'story';
+	onComplete?: (assistantMessage: DatabaseMessage) => Promise<void> | void;
+	requestProfile?: MessageRequestProfile;
+	tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+	tools?: ApiChatCompletionTool[];
+}
+
+interface RequestProfileCompletionHandlerParams {
+	assistantMessage: DatabaseMessage;
+	profile: MessageRequestProfile;
+	userMessage: DatabaseMessage;
+}
+
+type RequestProfileCompletionHandler = (
+	params: RequestProfileCompletionHandlerParams
+) => Promise<void> | void;
+
+function cloneRequestProfile(
+	requestProfile?: MessageRequestProfile
+): MessageRequestProfile | undefined {
+	return requestProfile ? { ...requestProfile } : undefined;
 }
 
 class ChatStore {
@@ -118,6 +148,17 @@ class ChatStore {
 		string,
 		{ content: string; extras?: DatabaseMessageExtra[] }
 	>();
+	private requestProfileCompletionHandlers = new Map<
+		MessageRequestProfile['kind'],
+		RequestProfileCompletionHandler
+	>();
+
+	registerRequestProfileCompletionHandler(
+		kind: MessageRequestProfile['kind'],
+		handler: RequestProfileCompletionHandler
+	): void {
+		this.requestProfileCompletionHandlers.set(kind, handler);
+	}
 
 	private setChatLoading(convId: string, loading: boolean): void {
 		this.touchConversationState(convId);
@@ -732,6 +773,55 @@ class ChatStore {
 		notifyResponseFailed(this.responseNotificationsEnabled());
 	}
 
+	private async notifyRequestProfileComplete(
+		resolvedRequestProfile: ResolvedRequestProfile | undefined,
+		assistantMessage: DatabaseMessage
+	): Promise<void> {
+		if (!resolvedRequestProfile) return;
+
+		const handler = this.requestProfileCompletionHandlers.get(resolvedRequestProfile.profile.kind);
+		if (!handler) return;
+
+		try {
+			await handler({
+				assistantMessage,
+				profile: resolvedRequestProfile.profile,
+				userMessage: resolvedRequestProfile.userMessage
+			});
+		} catch (error) {
+			console.error('Request profile completion handler failed:', error);
+		}
+	}
+
+	private resolveSendOptionsForRequest(
+		allMessages: DatabaseMessage[],
+		sendOptions: SendMessageOptions
+	): {
+		messages: DatabaseMessage[];
+		resolvedRequestProfile?: ResolvedRequestProfile;
+		sendOptions: SendMessageOptions;
+	} {
+		const resolvedRequestProfile = resolveChatRequestProfile(
+			allMessages,
+			sendOptions.requestProfile
+		);
+
+		if (!resolvedRequestProfile) {
+			return { messages: allMessages, sendOptions };
+		}
+
+		return {
+			messages: resolvedRequestProfile.messages,
+			resolvedRequestProfile,
+			sendOptions: {
+				...sendOptions,
+				disableAgentic: resolvedRequestProfile.disableAgentic,
+				tool_choice: resolvedRequestProfile.tool_choice,
+				tools: resolvedRequestProfile.tools
+			}
+		};
+	}
+
 	hasPendingMessage(convId: string): boolean {
 		return this._pendingMessages.has(convId);
 	}
@@ -981,20 +1071,31 @@ class ChatStore {
 		);
 	}
 
-	async sendMessage(content: string, extras?: DatabaseMessageExtra[]): Promise<void> {
+	async sendMessage(
+		content: string,
+		extras?: DatabaseMessageExtra[],
+		options: SendMessageOptions = {}
+	): Promise<void> {
 		if (!content.trim() && (!extras || extras.length === 0)) return;
 		this.requestResponseNotificationPermission();
 		const activeConv = conversationsStore.activeConversation;
+		const targetConversationId = options.conversationId ?? activeConv?.id;
+		const isTargetActive = Boolean(targetConversationId && activeConv?.id === targetConversationId);
+		const targetConv = targetConversationId
+			? isTargetActive
+				? activeConv
+				: await DatabaseService.getConversation(targetConversationId)
+			: null;
 
 		// If agentic loop is running, inject as a steering message instead of starting a new flow
-		if (activeConv && agenticStore.isRunning(activeConv.id)) {
-			agenticStore.injectSteeringMessage(activeConv.id, content, extras);
+		if (targetConv && agenticStore.isRunning(targetConv.id)) {
+			agenticStore.injectSteeringMessage(targetConv.id, content, extras);
 			return;
 		}
 
 		// If non-agentic streaming is active, queue as a pending message to send after completion
-		if (activeConv && this.isChatLoadingInternal(activeConv.id)) {
-			this.injectPendingMessage(activeConv.id, content, extras);
+		if (targetConv && this.isChatLoadingInternal(targetConv.id)) {
+			this.injectPendingMessage(targetConv.id, content, extras);
 			return;
 		}
 
@@ -1006,18 +1107,25 @@ class ChatStore {
 		const allExtras = resourceExtras.length > 0 ? [...(extras || []), ...resourceExtras] : extras;
 
 		let isNewConversation = false;
-		if (!activeConv) {
-			await conversationsStore.createConversation();
+		if (!targetConv) {
+			await conversationsStore.createConversation(undefined, { mode: options.mode });
 			isNewConversation = true;
 		}
-		const currentConv = conversationsStore.activeConversation;
+		const currentConv = targetConv ?? conversationsStore.activeConversation;
 		if (!currentConv) return;
+		const conversationMessages = isTargetActive
+			? conversationsStore.activeMessages
+			: (filterByLeafNodeId(
+					await DatabaseService.getConversationMessages(currentConv.id),
+					currentConv.currNode ?? '',
+					false
+				) as DatabaseMessage[]);
 		this.showErrorDialog(null);
 		this.setChatLoading(currentConv.id, true);
 		this.clearChatStreaming(currentConv.id);
 		try {
 			let parentIdForUserMessage: string | undefined;
-			if (isNewConversation) {
+			if (isNewConversation || conversationMessages.length === 0) {
 				const rootId = await DatabaseService.createRootMessage(currentConv.id);
 				const currentConfig = config();
 				const systemPrompt = currentConfig.systemMessage?.toString().trim();
@@ -1028,30 +1136,71 @@ class ChatStore {
 						rootId
 					);
 					conversationsStore.addMessageToActive(systemMessage);
+					conversationMessages.push(systemMessage);
 					parentIdForUserMessage = systemMessage.id;
 				} else parentIdForUserMessage = rootId;
 			}
-			const userMessage = await this.addMessage(
-				MessageRole.USER,
-				content,
-				MessageType.TEXT,
-				parentIdForUserMessage ?? '-1',
-				allExtras
+			const parentId =
+				parentIdForUserMessage ??
+				conversationMessages[conversationMessages.length - 1]?.id ??
+				(await DatabaseService.createRootMessage(currentConv.id));
+			const userMessage = await DatabaseService.createMessageBranch(
+				{
+					convId: currentConv.id,
+					role: MessageRole.USER,
+					content,
+					type: MessageType.TEXT,
+					timestamp: Date.now(),
+					toolCalls: '',
+					children: [],
+					extra: allExtras,
+					requestProfile: cloneRequestProfile(options.requestProfile)
+				},
+				parentId
 			);
-			if (isNewConversation && content)
+			if (currentConv.id === conversationsStore.activeConversation?.id) {
+				conversationsStore.addMessageToActive(userMessage);
+				await conversationsStore.updateCurrentNode(userMessage.id);
+				conversationsStore.updateConversationTimestamp();
+			} else {
+				conversationMessages.push(userMessage);
+			}
+			if (!conversationMessages.some((message) => message.id === userMessage.id)) {
+				conversationMessages.push(userMessage);
+			}
+			if (isNewConversation && content && options.mode !== 'story')
 				await conversationsStore.updateConversationName(
 					currentConv.id,
 					generateConversationTitle(content, Boolean(config().titleGenerationUseFirstLine))
 				);
-			const assistantMessage = await this.createAssistantMessage(userMessage.id);
-			conversationsStore.addMessageToActive(assistantMessage);
+			const contextMessages = [...conversationMessages];
+			const assistantMessage = await DatabaseService.createMessageBranch(
+				{
+					convId: currentConv.id,
+					type: MessageType.TEXT,
+					role: MessageRole.ASSISTANT,
+					content: '',
+					timestamp: Date.now(),
+					toolCalls: '',
+					children: [],
+					model: null
+				},
+				userMessage.id
+			);
+			if (currentConv.id === conversationsStore.activeConversation?.id) {
+				conversationsStore.addMessageToActive(assistantMessage);
+				await conversationsStore.updateCurrentNode(assistantMessage.id);
+			}
 			await this.streamChatCompletion(
-				conversationsStore.activeMessages.slice(0, -1),
+				contextMessages,
 				assistantMessage,
+				options.onComplete,
 				undefined,
 				undefined,
-				undefined,
-				config().titleGenerationUseLLM && isNewConversation ? content : undefined
+				config().titleGenerationUseLLM && isNewConversation && options.mode !== 'story'
+					? content
+					: undefined,
+				options
 			);
 		} catch (error) {
 			if (isAbortError(error)) {
@@ -1078,10 +1227,11 @@ class ChatStore {
 	private async streamChatCompletion(
 		allMessages: DatabaseMessage[],
 		assistantMessage: DatabaseMessage,
-		onComplete?: (content: string) => Promise<void>,
+		onComplete?: (assistantMessage: DatabaseMessage) => Promise<void> | void,
 		onError?: (error: Error) => void,
 		modelOverride?: string | null,
-		firstUserMessageContent?: string
+		firstUserMessageContent?: string,
+		sendOptions: SendMessageOptions = {}
 	): Promise<void> {
 		// the ::model suffix in the stream identity is only for router mode, where it routes to the
 		// owning child. in single-model mode the identity stays the bare conv id so that attach, stop
@@ -1157,6 +1307,11 @@ class ChatStore {
 		this.setStreamingActive(true);
 		this.setActiveProcessingConversation(convId);
 		const abortController = this.getOrCreateAbortController(convId);
+		const {
+			messages: requestMessages,
+			resolvedRequestProfile,
+			sendOptions: requestSendOptions
+		} = this.resolveSendOptionsForRequest(allMessages, sendOptions);
 
 		const streamCallbacks: ChatStreamCallbacks = {
 			onChunk: (chunk: string) => {
@@ -1235,6 +1390,7 @@ class ChatStore {
 				};
 				if (timings) uiUpdate.timings = timings;
 				if (resolvedModel) uiUpdate.model = resolvedModel;
+				Object.assign(assistantMessage, uiUpdate);
 				// touch the active ui array and node pointer only when this conversation
 				// is displayed; otherwise persist the node move straight to the db so a
 				// foreign conv's currNode stays untouched
@@ -1313,7 +1469,12 @@ class ChatStore {
 
 				cleanupStreamingState();
 
-				if (onComplete) onComplete(streamedContent);
+				if (onComplete) {
+					const idx = conversationsStore.findMessageIndex(currentMessageId);
+					void Promise.resolve(
+						onComplete(conversationsStore.activeMessages[idx] ?? assistantMessage)
+					);
+				}
 				if (isRouterMode()) modelsStore.fetchRouterModels().catch(console.error);
 				// Pre-encode conversation in KV cache for faster next turn
 				if (config().preEncodeConversation) {
@@ -1333,7 +1494,10 @@ class ChatStore {
 					// If aborted with a pending message (e.g. "Send immediately"), re-send it
 					const pending = this.consumePendingMessage(convId);
 					if (pending) {
-						this.sendMessage(pending.content, pending.extras);
+						this.sendMessage(pending.content, pending.extras, {
+							...sendOptions,
+							conversationId: convId
+						});
 					}
 					return;
 				}
@@ -1356,20 +1520,30 @@ class ChatStore {
 			}
 		};
 
-		const perChatOverrides = conversationsStore.getAllMcpServerOverrides();
+		const targetConversation =
+			conversationsStore.activeConversation?.id === convId
+				? conversationsStore.activeConversation
+				: await DatabaseService.getConversation(convId);
+		const perChatOverrides = conversationsStore.getAllMcpServerOverrides(targetConversation);
 
 		{
-			const agenticResult = await agenticStore.runAgenticFlow({
-				conversationId: convId,
-				messages: allMessages,
-				options: {
-					...this.getApiOptions(),
-					...(effectiveModel ? { model: effectiveModel } : {})
-				},
-				callbacks: streamCallbacks,
-				signal: abortController.signal,
-				perChatOverrides
-			});
+			const agenticResult = requestSendOptions.disableAgentic
+				? { handled: false }
+				: await agenticStore.runAgenticFlow({
+						conversationId: convId,
+						messages: requestMessages,
+						options: {
+							...this.getApiOptions(),
+							...(requestSendOptions.tools ? { tools: requestSendOptions.tools } : {}),
+							...(requestSendOptions.tool_choice
+								? { tool_choice: requestSendOptions.tool_choice }
+								: {}),
+							...(effectiveModel ? { model: effectiveModel } : {})
+						},
+						callbacks: streamCallbacks,
+						signal: abortController.signal,
+						perChatOverrides
+					});
 			if (agenticResult.handled) {
 				if (!agenticResult.error && !abortController.signal.aborted) {
 					this.notifyResponseReady();
@@ -1381,16 +1555,23 @@ class ChatStore {
 				// Check if there's a pending steering message to re-send
 				const pending = agenticStore.consumePendingSteeringMessage(convId);
 				if (pending) {
-					await this.sendMessage(pending.content, pending.extras);
+					await this.sendMessage(pending.content, pending.extras, {
+						...sendOptions,
+						conversationId: convId
+					});
 				}
 				return;
 			}
 		}
 
 		await ChatService.sendMessage(
-			allMessages,
+			requestMessages,
 			{
 				...this.getApiOptions(),
+				...(requestSendOptions.tools ? { tools: requestSendOptions.tools } : {}),
+				...(requestSendOptions.tool_choice
+					? { tool_choice: requestSendOptions.tool_choice }
+					: {}),
 				...(effectiveModel ? { model: effectiveModel } : {}),
 				stream: true,
 				onChunk: streamCallbacks.onChunk,
@@ -1427,11 +1608,25 @@ class ChatStore {
 					};
 					if (timings) uiUpdate.timings = timings;
 					if (resolvedModel) uiUpdate.model = resolvedModel;
+					Object.assign(assistantMessage, uiUpdate);
 					conversationsStore.updateMessageAtIndex(idx, uiUpdate);
-					await conversationsStore.updateCurrentNode(currentMessageId);
+					if (convId === conversationsStore.activeConversation?.id) {
+						await conversationsStore.updateCurrentNode(currentMessageId);
+					}
 					cleanupStreamingState();
 					this.notifyResponseReady();
-					if (onComplete) await onComplete(content);
+					if (onComplete) {
+						const updatedMessage =
+							conversationsStore.activeMessages[
+								conversationsStore.findMessageIndex(currentMessageId)
+							] ?? assistantMessage;
+						await onComplete(updatedMessage);
+					}
+					const updatedMessage =
+						conversationsStore.activeMessages[
+							conversationsStore.findMessageIndex(currentMessageId)
+						] ?? assistantMessage;
+					await this.notifyRequestProfileComplete(resolvedRequestProfile, updatedMessage);
 					if (isRouterMode()) modelsStore.fetchRouterModels().catch(console.error);
 
 					// Generate LLM based title for new conversations (avoids stale reference
@@ -1443,7 +1638,10 @@ class ChatStore {
 					// Check if there's a pending message queued during streaming
 					const pending = this.consumePendingMessage(convId);
 					if (pending) {
-						await this.sendMessage(pending.content, pending.extras);
+						await this.sendMessage(pending.content, pending.extras, {
+							...sendOptions,
+							conversationId: convId
+						});
 					}
 				},
 				onError: streamCallbacks.onError
@@ -1612,7 +1810,10 @@ class ChatStore {
 		}
 	}
 
-	async regenerateMessage(messageId: string): Promise<void> {
+	async regenerateMessage(
+		messageId: string,
+		options: Omit<SendMessageOptions, 'mode'> = {}
+	): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isChatLoadingInternal(activeConv.id)) return;
 		this.requestResponseNotificationPermission();
@@ -1635,7 +1836,12 @@ class ChatStore {
 			conversationsStore.addMessageToActive(assistantMessage);
 			await this.streamChatCompletion(
 				conversationsStore.activeMessages.slice(0, -1),
-				assistantMessage
+				assistantMessage,
+				options.onComplete,
+				undefined,
+				undefined,
+				undefined,
+				options
 			);
 		} catch (error) {
 			if (!isAbortError(error)) console.error('Failed to regenerate message:', error);
@@ -1643,11 +1849,17 @@ class ChatStore {
 		}
 	}
 
-	async regenerateMessageWithBranching(messageId: string, modelOverride?: string): Promise<void> {
+	async regenerateMessageWithBranching(
+		messageId: string,
+		modelOverrideOrOptions?: string | Omit<SendMessageOptions, 'mode'>
+	): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isChatLoadingInternal(activeConv.id)) return;
 		this.requestResponseNotificationPermission();
 		this.cancelPreEncode();
+		const modelOverride =
+			typeof modelOverrideOrOptions === 'string' ? modelOverrideOrOptions : undefined;
+		const options = typeof modelOverrideOrOptions === 'string' ? {} : (modelOverrideOrOptions ?? {});
 		try {
 			const idx = conversationsStore.findMessageIndex(messageId);
 			if (idx === -1) return;
@@ -1683,9 +1895,11 @@ class ChatStore {
 			await this.streamChatCompletion(
 				conversationPath,
 				newAssistantMessage,
+				options.onComplete,
 				undefined,
+				modelToUse,
 				undefined,
-				modelToUse
+				options
 			);
 		} catch (error) {
 			if (!isAbortError(error))
@@ -1776,7 +1990,18 @@ class ChatStore {
 				}
 			}
 
-			await DatabaseService.deleteMessageCascading(activeConv.id, messageId);
+			const deletedMessageIds = await DatabaseService.deleteMessageCascading(
+				activeConv.id,
+				messageId
+			);
+
+			if (
+				activeConv.story?.initialAssistantMessageId &&
+				deletedMessageIds.includes(activeConv.story.initialAssistantMessageId)
+			) {
+				await conversationsStore.updateConversationStory(activeConv.id, undefined);
+			}
+
 			await conversationsStore.refreshActiveMessages();
 
 			conversationsStore.updateConversationTimestamp();
@@ -2171,7 +2396,8 @@ class ChatStore {
 						toolCalls: msg.toolCalls || '',
 						children: [],
 						extra: extrasToUse,
-						model: msg.model
+						model: msg.model,
+						requestProfile: cloneRequestProfile(msg.requestProfile)
 					},
 					parentId
 				);

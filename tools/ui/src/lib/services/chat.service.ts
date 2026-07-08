@@ -155,6 +155,7 @@ export class ChatService {
 			onTimings,
 			// Tools for function calling
 			tools,
+			tool_choice,
 			// Generation parameters
 			temperature,
 			max_tokens,
@@ -258,6 +259,10 @@ export class ChatService {
 			sse_ping_interval: stream ? 1 : undefined,
 			tools: tools && tools.length > 0 ? tools : undefined
 		};
+
+		if (tool_choice) {
+			requestBody.tool_choice = tool_choice;
+		}
 
 		// Include model in request if provided (required in ROUTER mode)
 		if (options.model) {

@@ -52,6 +52,7 @@
 		disabled?: boolean;
 		isLoading?: boolean;
 		placeholder?: string;
+		requireAttachmentToSubmit?: boolean;
 		showMcpPromptButton?: boolean;
 		showAddButton?: boolean;
 		showModelSelector?: boolean;
@@ -73,6 +74,7 @@
 		disabled = false,
 		isLoading = false,
 		placeholder = 'Type a message...',
+		requireAttachmentToSubmit = false,
 		showMcpPromptButton = false,
 		showAddButton = true,
 		showModelSelector = true,
@@ -147,7 +149,9 @@
 	let hasAttachments = $derived(
 		(attachments && attachments.length > 0) || (uploadedFiles && uploadedFiles.length > 0)
 	);
-	let canSubmit = $derived(value.trim().length > 0 || hasAttachments);
+	let canSubmit = $derived(
+		(value.trim().length > 0 || hasAttachments) && (!requireAttachmentToSubmit || hasAttachments)
+	);
 
 	onMount(() => {
 		recordingSupported = isAudioRecordingSupported();

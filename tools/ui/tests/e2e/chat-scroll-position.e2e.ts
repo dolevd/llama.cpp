@@ -11,7 +11,7 @@ import { expect, test, type Page } from '@playwright/test';
  * preserved across the switch.
  */
 
-const SCROLL_CONTAINER = '[aria-label="Chat interface with file drop zone"]';
+const SCROLL_CONTAINER = 'html';
 const SIDEBAR_ROOT = '[data-slot="sidebar"]';
 const DB_NAME = 'LlamaUi';
 const CONV_STORE = 'conversations';
@@ -144,19 +144,22 @@ async function seedConversations(
 						id: convA,
 						name: convAName,
 						lastModified: baseTimestamp,
-						currNode: chainA.lastId
+						currNode: chainA.lastId,
+						mode: 'chat'
 					});
 					cStore.add({
 						id: convB,
 						name: convBName,
 						lastModified: baseTimestamp + 1000,
-						currNode: chainB.lastId
+						currNode: chainB.lastId,
+						mode: 'chat'
 					});
 					cStore.add({
 						id: convC,
 						name: convCName,
 						lastModified: baseTimestamp + 2000,
-						currNode: chainC.lastId
+						currNode: chainC.lastId,
+						mode: 'chat'
 					});
 
 					for (const m of chainA.messages) mStore.add(m);
@@ -238,6 +241,7 @@ test.describe('Chat scroll position memory', () => {
 		// recent-conversations list is always reachable from the test.
 		await page.addInitScript(() => {
 			localStorage.setItem('LlamaUi.config', JSON.stringify({ alwaysShowSidebarOnDesktop: true }));
+			localStorage.setItem('LlamaUi.mcpServersSetupDone', 'true');
 		});
 	});
 
