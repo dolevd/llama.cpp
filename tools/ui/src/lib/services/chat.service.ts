@@ -1097,6 +1097,7 @@ export class ChatService {
 			timings_per_token,
 			// Tools for function calling
 			tools,
+			tool_choice,
 			top_k,
 			top_p,
 			typ_p,
@@ -1155,6 +1156,10 @@ export class ChatService {
 			stream,
 			tools: tools && tools.length > 0 ? tools : undefined
 		};
+
+		if (tool_choice) {
+			requestBody.tool_choice = tool_choice;
+		}
 
 		// Include model in request if provided (required in ROUTER mode)
 		if (options.model) {

@@ -224,6 +224,7 @@ export { default as ChatFormActionAddToolsSubmenu } from './ChatForm/ChatFormAct
  * Compact context-usage gauge with per-turn and cumulative breakdown in the tooltip.
  */
 export { default as ChatFormContextGauge } from './ChatForm/ChatFormContextGauge/ChatFormContextGauge.svelte';
+export { default as ChatFormReasoningToggle } from './ChatForm/ChatFormActions/ChatFormReasoningToggle.svelte';
 
 /**
  * Hidden file input element for programmatic file selection.

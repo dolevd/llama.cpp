@@ -305,7 +305,8 @@
 			scheduleMobileCollapse();
 		}
 
-		await goto(RouterService.chat(id));
+		const conversation = conversations().find((conv) => conv.id === id);
+		await goto(conversation ? RouterService.conversation(conversation) : RouterService.chat(id));
 	}
 
 	async function handleEditConversation(id: string) {
@@ -551,6 +552,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<aside
 		bind:this={asideEl}
+		data-slot="sidebar"
 		class={[
 			'fixed md:sticky top-2 left-2 md:left-0 md:ml-2 md:mt-2 pt-2 z-10 md:z-20 w-[calc(100dvw-1rem)]',
 			'md:h-[calc(100dvh-1.125rem)]',

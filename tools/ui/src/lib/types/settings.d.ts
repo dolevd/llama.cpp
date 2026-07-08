@@ -94,6 +94,7 @@ export interface SettingsChatServiceOptions {
 	// Token budget for thinking, sent as thinking_budget_tokens
 	thinkingBudgetTokens?: number;
 	tools?: OpenAIToolDefinition[];
+	tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
 	// Generation parameters
 	temperature?: number;
 	max_tokens?: number;

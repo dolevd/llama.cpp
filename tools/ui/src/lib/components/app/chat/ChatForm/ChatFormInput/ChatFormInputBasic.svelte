@@ -32,6 +32,13 @@
 		}
 	});
 
+	$effect(() => {
+		if (textareaElement) {
+			void value;
+			autoResizeTextarea(textareaElement);
+		}
+	});
+
 	export function getElement() {
 		return textareaElement;
 	}

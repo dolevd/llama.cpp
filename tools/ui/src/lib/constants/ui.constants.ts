@@ -6,9 +6,10 @@ import {
 	SHORTCUT_SETTINGS
 } from './keyboard-shortcuts.constants';
 import { MODELS_ROUTE_ID } from './routes.constants';
-import { Search, Settings, SquarePen } from '@lucide/svelte';
+import { BookOpenText, Search, Settings, SquarePen } from '@lucide/svelte';
 import McpLogo from '$lib/components/app/mcp/McpLogo.svelte';
 import { SidebarAction, ToolSource } from '$lib/enums';
+import { ROUTES } from './routes.constants';
 import type { DesktopIconStripItem } from '$lib/types';
 
 /** Delay before a copied affordance resets from its check to the copy icon. */
@@ -102,6 +103,7 @@ export const SIDEBAR_ACTIONS_ITEMS: DesktopIconStripItem[] = [
 		tooltip: 'New chat'
 	},
 	{ action: SidebarAction.SEARCH, icon: Search, keys: SHORTCUT_SEARCH, tooltip: 'Search' },
+	{ icon: BookOpenText, route: ROUTES.NEW_STORY, tooltip: 'Story mode' },
 	{
 		action: SidebarAction.MANAGE_MODELS,
 		activeRouteId: MODELS_ROUTE_ID,

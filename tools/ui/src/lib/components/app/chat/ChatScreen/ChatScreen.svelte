@@ -35,10 +35,39 @@
 		serverStore,
 		settingsStore
 	} from '$lib/stores';
+	import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types';
 	import { parseFilesToMessageExtras } from '$lib/utils/browser-only';
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 
-	let { showCenteredEmpty = false } = $props();
+	let {
+		composerDisabled = false,
+		draftKey,
+		greetingDescription,
+		greetingTitle,
+		hideComposer = false,
+		initialMessage = '',
+		messageAddons,
+		onSend,
+		onStop,
+		placeholder,
+		requireAttachmentToSubmit = false,
+		resetKey = 'chat',
+		showCenteredEmpty = false
+	} = $props<{
+		composerDisabled?: boolean;
+		draftKey?: string;
+		greetingDescription?: string;
+		greetingTitle?: string;
+		hideComposer?: boolean;
+		initialMessage?: string;
+		messageAddons?: Snippet<[DatabaseMessage]>;
+		onSend?: (message: string, extras?: DatabaseMessageExtra[]) => Promise<void> | void;
+		onStop?: () => Promise<void> | void;
+		placeholder?: string;
+		requireAttachmentToSubmit?: boolean;
+		resetKey?: string;
+		showCenteredEmpty?: boolean;
+	}>();
 
 	let emptyFileNames = $state<string[]>([]);
 	let showDeleteDialog = $state(false);
@@ -128,7 +157,11 @@
 		// Sending re-arms following: the reply streams in under the message.
 		stick.scrollToBottom();
 
-		await chatStore.sendMessage(message, result?.extras);
+		if (onSend) {
+			await onSend(message, result?.extras);
+		} else {
+			await chatStore.sendMessage(message, result?.extras);
+		}
 
 		return true;
 	}
@@ -251,10 +284,13 @@
 		role="main"
 	>
 		{#if !isEmpty}
-			<ChatMessages
-				messages={conversationsStore.activeMessages}
-				onMessagesReady={handleMessagesReady}
-			/>
+			<ChatMessages messages={conversationsStore.activeMessages} onMessagesReady={handleMessagesReady}>
+				{#snippet afterMessage(message)}
+					{#if messageAddons}
+						{@render messageAddons(message)}
+					{/if}
+				{/snippet}
+			</ChatMessages>
 		{/if}
 
 		<!-- the scroll anchor that keeps the page at its bottom, see createStickToBottom -->
@@ -280,7 +316,7 @@
 					: ''
 			]}
 		>
-			<ChatScreenGreeting isEmpty={isFormCentered} />
+			<ChatScreenGreeting description={greetingDescription} isEmpty={isFormCentered} title={greetingTitle} />
 
 			<ChatScreenServerError />
 
@@ -294,17 +330,23 @@
 				{/if}
 			</div>
 
+			{#if !hideComposer}
 			<ChatScreenForm
 				bind:uploadedFiles={fileUpload.uploadedFiles}
 				class="pointer-events-auto conversation-chat-form"
-				disabled={hasPropsError || chatStore.isEditing()}
+				disabled={hasPropsError || chatStore.isEditing() || composerDisabled}
+				{draftKey}
+				{initialMessage}
 				isLoading={isCurrentConversationLoading}
 				onFileRemove={fileUpload.handleFileRemove}
 				onFileUpload={fileUpload.handleFileUpload}
 				onSend={handleSendMessage}
-				onStop={() => chatStore.stopGeneration()}
+				onStop={() => (onStop ? onStop() : chatStore.stopGeneration())}
 				onSystemPromptAdd={handleSystemPromptAdd}
+				{placeholder}
+				{requireAttachmentToSubmit}
 			/>
+			{/if}
 		</div>
 	</div>
 {/if}

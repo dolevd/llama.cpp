@@ -133,7 +133,9 @@ export {
 export {
 	requestResponseNotificationPermission,
 	notifyResponseReady,
-	notifyResponseFailed
+	notifyResponseFailed,
+	notifyStoryApprovalNeeded,
+	notifyStoryComplete
 } from './notifications';
 
 // Portal utilities
@@ -153,6 +155,22 @@ export { debounce } from './debounce';
 
 // Sanitization utilities
 export { sanitizeKeyValuePairKey, sanitizeKeyValuePairValue } from './sanitize';
+
+// Story utilities
+export {
+	generateStoryChaptersSequentially,
+	getStoryMetadataByMessageId,
+	getStoryChapterPrompt,
+	parseStoryOutlineToolCalls,
+	parseStoryOutlineText,
+	resolveChatRequestProfile,
+	storyMetadataFromOutlineMessage,
+	storyOutlineToText,
+	stripStoryOutlineInstruction,
+	type ResolvedRequestProfile,
+	type StoryOutline,
+	type StoryOutlineParseResult
+} from './story';
 
 // Image error fallback utilities
 export { getImageErrorFallbackHtml } from './image-error-fallback';

@@ -58,6 +58,38 @@ const scenarios = {
 			}
 		],
 		content: ['Tool-call ', 'stream ', 'complete.']
+	},
+	storyOutlineA: {
+		toolCalls: buildStoryOutlineToolCallChunks('call_story_outline_1', {
+			title: 'The Clockwork Orchard',
+			summary: 'A keeper follows a humming seed into a hidden mechanical grove.',
+			chapters: [
+				{
+					title: 'The Brass Seed',
+					summary: 'Mira finds the seed ticking inside the abandoned conservatory.'
+				},
+				{
+					title: 'Roots Of Glass',
+					summary: 'The grove reveals why the old machines learned to bloom.'
+				}
+			]
+		})
+	},
+	storyOutlineB: {
+		toolCalls: buildStoryOutlineToolCallChunks('call_story_outline_2', {
+			title: 'The Lantern Archive',
+			summary: 'A courier carries a stolen lantern through a library that remembers futures.',
+			chapters: [
+				{
+					title: 'Borrowed Flame',
+					summary: 'Ilan steals the lantern before the archive can erase his map.'
+				},
+				{
+					title: 'The Future Shelf',
+					summary: 'The lantern shows which memories must be traded for the road home.'
+				}
+			]
+		})
 	}
 };
 
@@ -158,7 +190,7 @@ async function handleChatCompletion(res, body) {
 	}
 
 	const scenario = selectScenario(body);
-	const content = scenario.content.join('');
+	const content = (scenario.content ?? []).join('');
 	const reasoning = scenario.reasoning?.join('');
 
 	if (!body.stream) {
@@ -219,7 +251,7 @@ async function streamChatCompletion(res, body, scenario) {
 		writeSse(res, buildChunk({ id, model, toolCalls: [toolCall], predicted }));
 	}
 
-	for (const contentChunk of scenario.content) {
+	for (const contentChunk of scenario.content ?? []) {
 		predicted++;
 		await delay(120);
 		writeSse(res, buildChunk({ id, model, content: contentChunk, predicted }));
@@ -347,7 +379,7 @@ function buildProps(model) {
 			video: false
 		},
 		chat_template:
-			'{% for message in messages %}<|im_start|>{{ message.role }}\n{{ message.content }}<|im_end|>{% endfor %}',
+			'{% if enable_thinking %}<think></think>{% endif %}{% for message in messages %}<|im_start|>{{ message.role }}\n{{ message.content }}<|im_end|>{% endfor %}',
 		bos_token: '<s>',
 		eos_token: '</s>',
 		build_info: 'mock-e2e',
@@ -408,7 +440,59 @@ function selectScenario(body) {
 
 	if (text.includes('mock-scenario: reasoning')) return scenarios.reasoning;
 	if (text.includes('mock-scenario: tool-call')) return scenarios.toolCall;
+	if (isStoryOutlineRequest(body) && text.includes('mock-scenario: story-outline')) {
+		return countStoryOutlineRequests() <= 1 ? scenarios.storyOutlineA : scenarios.storyOutlineB;
+	}
 	return scenarios.default;
+}
+
+function isStoryOutlineRequest(body) {
+	return (
+		body.tool_choice?.type === 'function' &&
+		body.tool_choice.function?.name === 'submit_story_outline'
+	);
+}
+
+function buildStoryOutlineToolCallChunks(id, outline) {
+	const args = JSON.stringify(outline);
+
+	return [
+		{
+			index: 0,
+			id,
+			type: 'function',
+			function: { name: 'submit_story_outline', arguments: '' }
+		},
+		{
+			index: 0,
+			function: { arguments: args }
+		}
+	];
+}
+
+function countStoryOutlineRequests() {
+	return requestLog.filter((entry) => {
+		if (entry.path !== '/v1/chat/completions') return false;
+		if (!isStoryOutlineRequest(entry.body)) return false;
+		const messages = Array.isArray(entry.body?.messages) ? entry.body.messages : [];
+		return messages.some((message) => {
+			if (!message || typeof message !== 'object') return false;
+			const content = message.content;
+			if (typeof content === 'string') {
+				return content.toLowerCase().includes('mock-scenario: story-outline');
+			}
+			if (Array.isArray(content)) {
+				return content.some(
+					(part) =>
+						part &&
+						typeof part === 'object' &&
+						typeof part.text === 'string' &&
+						part.text.toLowerCase().includes('mock-scenario: story-outline')
+				);
+			}
+			return false;
+		});
+	}).length;
 }
 
 function validateChatCompletionRequest(body) {

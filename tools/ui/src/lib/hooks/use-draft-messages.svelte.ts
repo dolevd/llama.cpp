@@ -23,8 +23,16 @@ export function useDraftMessages(options: UseDraftMessagesOptions) {
 
 	beforeNavigate(() => {
 		const chatId = options.getChatId();
+		const initialMessage = options.getInitialMessage();
+		const message = options.getMessage();
+		const files = options.getFiles();
 
-		draftMessagesStore.saveDraftMessage(chatId, options.getMessage(), options.getFiles());
+		if (initialMessage && message === initialMessage && files.length === 0) {
+			draftMessagesStore.clearDraftMessage(chatId);
+			return;
+		}
+
+		draftMessagesStore.saveDraftMessage(chatId, message, files);
 	});
 
 	afterNavigate((navigation) => {
@@ -32,8 +40,13 @@ export function useDraftMessages(options: UseDraftMessagesOptions) {
 			const chatId = options.getChatId();
 			const draft = draftMessagesStore.getDraftMessage(chatId);
 
-			options.setMessage(draft.message);
-			options.setFiles(draft.files);
+			if (draft.message || draft.files.length > 0) {
+				options.setMessage(draft.message);
+				options.setFiles(draft.files);
+			} else {
+				options.setMessage(options.getInitialMessage());
+				options.setFiles([]);
+			}
 		}
 	});
 

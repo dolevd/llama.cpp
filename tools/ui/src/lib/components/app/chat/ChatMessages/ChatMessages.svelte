@@ -5,6 +5,7 @@
 	import { MessageRole } from '$lib/enums';
 	import { agenticStore, chatStore, conversationsStore, settingsStore } from '$lib/stores';
 	import type { ChatMessageActions } from '$lib/types';
+	import type { Snippet } from 'svelte';
 	import {
 		buildSiblingInfoMap,
 		copyToClipboard,
@@ -13,11 +14,12 @@
 	} from '$lib/utils';
 
 	interface Props {
+		afterMessage?: Snippet<[DatabaseMessage]>;
 		messages?: DatabaseMessage[];
 		onMessagesReady?: (messageCount: number) => void;
 	}
 
-	let { messages = [], onMessagesReady }: Props = $props();
+	let { afterMessage, messages = [], onMessagesReady }: Props = $props();
 
 	let allConversationMessages = $state<DatabaseMessage[]>([]);
 
@@ -253,6 +255,9 @@
 				{siblingInfo}
 				{toolMessages}
 			/>
+			{#if afterMessage}
+				{@render afterMessage(message)}
+			{/if}
 		{/each}
 
 		{#if conversationsStore.activeConversation && agenticStore.getPendingSteeringMessageContent(conversationsStore.activeConversation!.id)}

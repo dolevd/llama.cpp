@@ -21,6 +21,7 @@ export type {
 	ApiModelDetails,
 	ApiLlamaCppServerProps,
 	ApiChatCompletionRequest,
+	ApiChatCompletionTool,
 	ApiChatCompletionToolCallFunctionDelta,
 	ApiChatCompletionToolCallDelta,
 	ApiChatCompletionToolCall,
@@ -86,6 +87,11 @@ export type {
 // Database types
 export type {
 	McpServerOverride,
+	ConversationMode,
+	MessageRequestProfile,
+	StoryChapterSummary,
+	StoryMetadata,
+	StoryPhase,
 	DatabaseConversation,
 	DatabaseMessageExtraAudioFile,
 	DatabaseMessageExtraVideoFile,

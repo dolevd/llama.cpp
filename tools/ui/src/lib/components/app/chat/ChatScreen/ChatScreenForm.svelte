@@ -9,24 +9,32 @@
 	interface Props {
 		class?: string;
 		disabled?: boolean;
+		draftKey?: string;
+		initialMessage?: string;
 		isLoading?: boolean;
 		onFileRemove?: (fileId: string) => void;
 		onFileUpload?: (files: File[]) => void;
 		onSend?: (message: string, files?: ChatUploadedFile[]) => Promise<boolean>;
 		onStop?: () => void;
 		onSystemPromptAdd?: (draft: { message: string; files: ChatUploadedFile[] }) => void;
+		placeholder?: string;
+		requireAttachmentToSubmit?: boolean;
 		uploadedFiles?: ChatUploadedFile[];
 	}
 
 	let {
 		class: className,
 		disabled = false,
+		draftKey,
+		initialMessage = '',
 		isLoading = false,
 		onFileRemove,
 		onFileUpload,
 		onSend,
 		onStop,
 		onSystemPromptAdd,
+		placeholder,
+		requireAttachmentToSubmit = false,
 		uploadedFiles = $bindable([])
 	}: Props = $props();
 
@@ -62,9 +70,10 @@
 	let hasLoadingAttachments = $derived(uploadedFiles.some((f) => f.isLoading));
 	let message = $state('');
 	let previousIsLoading = $derived(isLoading);
+	let previousInitialMessage = $state('');
 
 	const { clearDraft } = useDraftMessages({
-		getChatId: () => chatId,
+		getChatId: () => draftKey ?? chatId,
 		getFiles: () => uploadedFiles,
 		getMessage: () => message,
 		setFiles: (f) => (uploadedFiles = f),
@@ -76,7 +85,12 @@
 	}
 
 	async function handleSubmit() {
-		if ((!message.trim() && uploadedFiles.length === 0) || disabled || hasLoadingAttachments)
+		if (
+			(!message.trim() && uploadedFiles.length === 0) ||
+			(requireAttachmentToSubmit && uploadedFiles.length === 0) ||
+			disabled ||
+			hasLoadingAttachments
+		)
 			return;
 
 		if (!chatFormRef?.checkModelSelected()) return;
@@ -128,6 +142,13 @@
 		}
 	});
 
+	$effect.pre(() => {
+		if (initialMessage !== previousInitialMessage) {
+			message = initialMessage;
+			previousInitialMessage = initialMessage;
+		}
+	});
+
 	$effect(() => {
 		if (previousIsLoading && !isLoading) {
 			setTimeout(focusFormUnlessCaptured, 10);
@@ -145,6 +166,8 @@
 		class="mx-auto max-w-3xl {className}"
 		{disabled}
 		{isLoading}
+		{placeholder}
+		{requireAttachmentToSubmit}
 		onFilesAdd={handleFilesAdd}
 		{onStop}
 		onSubmit={handleSubmit}

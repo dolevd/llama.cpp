@@ -1,5 +1,8 @@
 const RESPONSE_READY_MESSAGE = 'Response ready';
 const RESPONSE_FAILED_MESSAGE = 'Response failed';
+const STORY_APPROVAL_NEEDED_MESSAGE = 'Story outline ready for approval';
+const STORY_COMPLETE_MESSAGE = 'Final story chapter complete';
+
 const NOTIFICATION_AUTO_CLOSE_MS = 5000;
 
 let pageVisible = true;
@@ -58,4 +61,12 @@ export function notifyResponseReady(enabled: boolean): void {
 
 export function notifyResponseFailed(enabled: boolean): void {
 	showNotification(RESPONSE_FAILED_MESSAGE, enabled);
+}
+
+export function notifyStoryApprovalNeeded(enabled: boolean): void {
+	showNotification(STORY_APPROVAL_NEEDED_MESSAGE, enabled);
+}
+
+export function notifyStoryComplete(enabled: boolean): void {
+	showNotification(STORY_COMPLETE_MESSAGE, enabled);
 }
