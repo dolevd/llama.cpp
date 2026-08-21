@@ -448,8 +448,10 @@ function selectScenario(body) {
 
 function isStoryOutlineRequest(body) {
 	return (
-		body.tool_choice?.type === 'function' &&
-		body.tool_choice.function?.name === 'submit_story_outline'
+		body.tool_choice === 'required' &&
+		body.tools?.some(
+			(tool) => tool?.type === 'function' && tool.function?.name === 'submit_story_outline'
+		)
 	);
 }
 

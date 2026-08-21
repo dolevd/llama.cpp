@@ -52,10 +52,7 @@ describe('resolveChatRequestProfile', () => {
 		expect(result?.messages[0].content).toContain(STORY_OUTLINE_TOOL_INSTRUCTION);
 		expect(userMessage.content).toBe('Continue from the attached snippet.');
 		expect(result?.tools[0].function.name).toBe(STORY_OUTLINE_TOOL_NAME);
-		expect(result?.tool_choice).toEqual({
-			type: 'function',
-			function: { name: STORY_OUTLINE_TOOL_NAME }
-		});
+		expect(result?.tool_choice).toBe('required');
 		expect(result?.disableAgentic).toBe(true);
 	});
 

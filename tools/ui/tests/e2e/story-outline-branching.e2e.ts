@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 type MockMessage = { content?: unknown };
-type ToolChoice = { type?: string; function?: { name?: string } };
 type ChatCompletionBody = {
 	chat_template_kwargs?: { enable_thinking?: boolean };
 	messages?: MockMessage[];
@@ -25,20 +24,6 @@ function messageContentIncludes(content: unknown, text: string): boolean {
 			'text' in part &&
 			typeof part.text === 'string' &&
 			part.text.includes(text)
-	);
-}
-
-function isStoryToolChoice(toolChoice: unknown): toolChoice is ToolChoice {
-	return (
-		!!toolChoice &&
-		typeof toolChoice === 'object' &&
-		'type' in toolChoice &&
-		toolChoice.type === 'function' &&
-		'function' in toolChoice &&
-		!!toolChoice.function &&
-		typeof toolChoice.function === 'object' &&
-		'name' in toolChoice.function &&
-		toolChoice.function.name === 'submit_story_outline'
 	);
 }
 
@@ -81,7 +66,7 @@ function getStoryRequests(mockState: MockState): MockRequestWithBody[] {
 	return mockState.chatCompletions.filter(
 		(entry): entry is MockRequestWithBody =>
 			!!entry.body &&
-			isStoryToolChoice(entry.body.tool_choice) &&
+			entry.body.tool_choice === 'required' &&
 			entry.body.messages?.some((message) =>
 				messageContentIncludes(message.content, 'mock-scenario: story-outline')
 			) === true
@@ -184,11 +169,10 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 			(entry: {
 				body?: {
 					messages?: Array<{ content?: unknown }>;
-					tool_choice?: { type?: string; function?: { name?: string } };
+					tool_choice?: unknown;
 				};
 			}) =>
-				entry.body?.tool_choice?.type === 'function' &&
-				entry.body.tool_choice.function?.name === 'submit_story_outline' &&
+				entry.body?.tool_choice === 'required' &&
 				entry.body?.messages?.some((message) =>
 					messageContentIncludes(message.content, 'mock-scenario: story-outline')
 				)
@@ -222,10 +206,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		).toBe(false);
 
 		for (const request of storyRequests) {
-			expect(request.body.tool_choice).toEqual({
-				type: 'function',
-				function: { name: 'submit_story_outline' }
-			});
+			expect(request.body.tool_choice).toBe('required');
 			expect(request.body.tools).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -287,11 +268,10 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 			(entry: {
 				body?: {
 					messages?: Array<{ content?: unknown }>;
-					tool_choice?: { type?: string; function?: { name?: string } };
+					tool_choice?: unknown;
 				};
 			}) =>
-				entry.body?.tool_choice?.type === 'function' &&
-				entry.body.tool_choice.function?.name === 'submit_story_outline'
+				entry.body?.tool_choice === 'required'
 		);
 
 		expect(storyRequests).toHaveLength(2);
