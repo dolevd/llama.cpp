@@ -182,7 +182,7 @@ export function resolveChatRequestProfile(
 				: message
 		),
 		profile,
-		tool_choice: { type: 'function', function: { name: STORY_OUTLINE_TOOL_NAME } },
+		tool_choice: 'required',
 		tools: [STORY_OUTLINE_TOOL],
 		userMessage
 	};
