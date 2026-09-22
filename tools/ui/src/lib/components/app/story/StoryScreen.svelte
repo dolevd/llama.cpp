@@ -3,10 +3,9 @@
 	import StoryMessageAddons from './StoryMessageAddons.svelte';
 	import ChatScreen from '$lib/components/app/chat/ChatScreen/ChatScreen.svelte';
 	import { STORY_INITIAL_PROMPT } from '$lib/constants';
-	import { isChatStreaming, isLoading } from '$lib/stores/chat.svelte';
-	import { activeConversation, activeMessages } from '$lib/stores/conversations.svelte';
+	import { chatStore, conversationsStore } from '$lib/stores';
 	import { storyStore } from '$lib/stores/story.svelte';
-	import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types';
+	import type { DatabaseMessageExtra } from '$lib/types';
 	import {
 		getActiveStoryMetadata,
 		getStoryChapterOutlineItems,
@@ -22,10 +21,12 @@
 	storyStore.ensureRequestProfileCompletionHandler();
 
 	let activeStory = $derived(
-		getActiveStoryMetadata(activeConversation(), activeMessages() as DatabaseMessage[])
+		getActiveStoryMetadata(conversationsStore.activeConversation, conversationsStore.activeMessages)
 	);
-	let isStoryStart = $derived(!activeConversation() && activeMessages().length === 0);
-	let isCurrentConversationLoading = $derived(isLoading() || isChatStreaming());
+	let isStoryStart = $derived(
+		!conversationsStore.activeConversation && conversationsStore.activeMessages.length === 0
+	);
+	let isCurrentConversationLoading = $derived(chatStore.isLoading || chatStore.isStreaming());
 	let isStoryFlowLocked = $derived(
 		activeStory?.phase === 'outline_generating' ||
 			activeStory?.phase === 'awaiting_approval' ||
@@ -33,17 +34,20 @@
 			activeStory?.phase === 'error'
 	);
 	let hideComposer = $derived(
-		Boolean(activeConversation()) && activeMessages().length > 0 && !isCurrentConversationLoading
+		Boolean(conversationsStore.activeConversation) &&
+			conversationsStore.activeMessages.length > 0 &&
+			!isCurrentConversationLoading
 	);
-	let draftKey = $derived(`story:${activeConversation()?.id ?? 'new'}`);
+	let draftKey = $derived(`story:${conversationsStore.activeConversation?.id ?? 'new'}`);
 	let initialMessage = $derived(isStoryStart ? STORY_INITIAL_PROMPT : '');
 	let storyByMessageId = $derived(
-		getStoryMetadataByMessageId(activeConversation(), activeMessages() as DatabaseMessage[])
+		getStoryMetadataByMessageId(
+			conversationsStore.activeConversation,
+			conversationsStore.activeMessages
+		)
 	);
 	let chapterOutlineItems = $derived(
-		activeStory
-			? getStoryChapterOutlineItems(activeStory, activeMessages() as DatabaseMessage[])
-			: []
+		activeStory ? getStoryChapterOutlineItems(activeStory, conversationsStore.activeMessages) : []
 	);
 	let showChapterOutline = $derived(
 		Boolean(activeStory?.approvedAt && chapterOutlineItems.length > 0)
@@ -75,8 +79,8 @@
 	<ChatScreen
 		composerDisabled={isStoryFlowLocked}
 		{draftKey}
-		greetingTitle="Start a story"
 		greetingDescription="Attach a snippet, tune the prompt, then generate an outline"
+		greetingTitle="Start a story"
 		{hideComposer}
 		{initialMessage}
 		onSend={handleSendMessage}
@@ -95,7 +99,7 @@
 {#if showChapterOutline && activeStory}
 	<StoryChapterOutline
 		items={chapterOutlineItems}
-		title={activeStory.title ?? 'Story chapters'}
 		onNavigate={navigateToChapter}
+		title={activeStory.title ?? 'Story chapters'}
 	/>
 {/if}

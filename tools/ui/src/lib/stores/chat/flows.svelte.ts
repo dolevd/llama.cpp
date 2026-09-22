@@ -407,6 +407,7 @@ export class ChatMessageFlows {
 						convId: msg.convId,
 						extra: extrasToUse,
 						model: msg.model,
+						requestProfile: msg.requestProfile ? { ...msg.requestProfile } : undefined,
 						role: msg.role,
 						timestamp: Date.now(),
 						toolCalls: msg.toolCalls || '',

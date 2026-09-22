@@ -1,7 +1,7 @@
 import { goto } from '$app/navigation';
 import { RouterService } from '$lib/services/router.service';
-import { chatStore } from '$lib/stores/chat.svelte';
-import { conversationsStore } from '$lib/stores/conversations.svelte';
+import { chatStore } from '$lib/stores/chat/index.svelte';
+import { conversationsStore } from '$lib/stores/conversations/index.svelte';
 import type { ConversationMode, DatabaseConversation } from '$lib/types';
 
 export type ConversationRouteLoadResult = 'ready' | 'redirected' | 'missing';

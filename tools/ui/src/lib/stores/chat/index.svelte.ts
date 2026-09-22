@@ -45,7 +45,8 @@ import type {
 	ChatStreamCallbacks,
 	DatabaseMessage,
 	DatabaseMessageExtra,
-	ErrorDialogState
+	ErrorDialogState,
+	MessageRequestProfile
 } from '$lib/types';
 import type { AgenticToolPolicy } from '$lib/types/agentic';
 import {
@@ -60,11 +61,57 @@ import {
 	notifyResponseFailed,
 	notifyResponseReady,
 	requestResponseNotificationPermission,
-	sliceAtLastCompaction
+	resolveChatRequestProfile,
+	sliceAtLastCompaction,
+	type ResolvedRequestProfile
 } from '$lib/utils';
 import { SvelteMap } from 'svelte/reactivity';
 
+interface SendMessageOptions {
+	conversationId?: string;
+	mode?: 'chat' | 'story';
+	onComplete?: (assistantMessage: DatabaseMessage) => Promise<void> | void;
+	requestProfile?: MessageRequestProfile;
+}
+
+interface RequestProfileCompletionParams {
+	assistantMessage: DatabaseMessage;
+	profile: MessageRequestProfile;
+	userMessage: DatabaseMessage;
+}
+
 class ChatStore implements ChatStreamHost, ChatFlowsHost {
+	private requestProfileCompletionHandlers = new Map<
+		MessageRequestProfile['kind'],
+		(params: RequestProfileCompletionParams) => Promise<void> | void
+	>();
+
+	registerRequestProfileCompletionHandler(
+		kind: MessageRequestProfile['kind'],
+		handler: (params: RequestProfileCompletionParams) => Promise<void> | void
+	): void {
+		this.requestProfileCompletionHandlers.set(kind, handler);
+	}
+
+	private async notifyRequestProfileComplete(
+		resolved: ResolvedRequestProfile | undefined,
+		assistantMessage: DatabaseMessage
+	): Promise<void> {
+		if (!resolved) return;
+		const handler = this.requestProfileCompletionHandlers.get(resolved.profile.kind);
+		if (!handler) return;
+
+		try {
+			await handler({
+				assistantMessage,
+				profile: resolved.profile,
+				userMessage: resolved.userMessage
+			});
+		} catch (error) {
+			console.error('Request profile completion handler failed:', error);
+		}
+	}
+
 	private responseNotificationsEnabled(): boolean {
 		return settingsStore.config.enableResponseNotifications !== false;
 	}
@@ -148,7 +195,8 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		type: MessageType = MessageType.TEXT,
 		parent: string = '-1',
 		extras?: DatabaseMessageExtra[],
-		isSynthetic?: boolean
+		isSynthetic?: boolean,
+		requestProfile?: MessageRequestProfile
 	): Promise<DatabaseMessage> {
 		const activeConv = conversationsStore.activeConversation;
 
@@ -175,6 +223,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				convId: activeConv.id,
 				extra: extras,
 				isSynthetic,
+				requestProfile,
 				role,
 				timestamp: Date.now(),
 				toolCalls: '',
@@ -447,14 +496,14 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		return this.activity.loadingConvs;
 	}
 
-	getApiOptions(): Record<string, unknown> {
+	getApiOptions(targetConversation?: DatabaseConversation | null, targetModel?: string | null): Record<string, unknown> {
 		const currentConfig = settingsStore.config;
 		const hasValue = (value: unknown): boolean =>
 			value !== undefined && value !== null && value !== '';
 		const apiOptions: Record<string, unknown> = { stream: true, timings_per_token: true };
 
 		if (serverStore.isRouterMode) {
-			const modelName = modelsStore.selectedModelName;
+			const modelName = targetModel ?? modelsStore.selectedModelName;
 
 			if (modelName) apiOptions.model = modelName;
 		}
@@ -467,10 +516,15 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 		// an explicit reasoning choice overrides the server default, DEFAULT sends nothing:
 		// a level the chat template honors goes as is, the others as a token budget
-		const modelId = modelsStore.selectedModelName ?? '';
+		const modelId = targetModel ?? modelsStore.selectedModelName ?? '';
 		const effort = modelsStore.props.resolveReasoningEffort(
 			modelId,
-			conversationsStore.preferences.getReasoningEffort()
+			targetConversation
+				? targetConversation.reasoningEffort ??
+					(targetConversation.thinkingEnabled === false
+						? ReasoningEffort.OFF
+						: conversationsStore.preferences.pendingReasoningEffort)
+				: conversationsStore.preferences.getReasoningEffort()
 		);
 		const budgetTokens = REASONING_EFFORT_TOKENS[effort];
 
@@ -744,22 +798,28 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		}
 	}
 
-	async sendMessage(content: string, extras?: DatabaseMessageExtra[]): Promise<void> {
+	async sendMessage(content: string, extras?: DatabaseMessageExtra[], options: SendMessageOptions = {}): Promise<void> {
 		if (!content.trim() && (!extras || extras.length === 0)) return;
 		this.requestResponseNotificationPermission();
 
 		const activeConv = conversationsStore.activeConversation;
+		const targetConv = options.conversationId
+			? activeConv?.id === options.conversationId
+				? activeConv
+				: await DatabaseService.getConversation(options.conversationId)
+			: activeConv;
+		if (options.conversationId && !targetConv) throw new Error('Conversation not found');
 
 		// If agentic loop is running, inject as a steering message instead of starting a new flow
-		if (activeConv && agenticStore.isRunning(activeConv.id)) {
-			agenticStore.injectSteeringMessage(activeConv.id, content, extras);
+		if (targetConv && agenticStore.isRunning(targetConv.id)) {
+			agenticStore.injectSteeringMessage(targetConv.id, content, extras);
 
 			return;
 		}
 
 		// If non-agentic streaming is active, queue as a pending message to send after completion
-		if (activeConv && this.isChatLoadingInternal(activeConv.id)) {
-			this.injectPendingMessage(activeConv.id, content, extras);
+		if (targetConv && this.isChatLoadingInternal(targetConv.id)) {
+			this.injectPendingMessage(targetConv.id, content, extras);
 
 			return;
 		}
@@ -770,11 +830,15 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		// Consume MCP resource attachments - converts them to extras and clears the live store
 		const resourceExtras = mcpStore.consumeResourceAttachmentsAsExtras();
 		const allExtras = resourceExtras.length > 0 ? [...(extras || []), ...resourceExtras] : extras;
+		if (targetConv && targetConv.id !== activeConv?.id) {
+			await this.sendMessageToInactiveConversation(targetConv, content, allExtras, options);
+			return;
+		}
 
 		let isNewConversation = false;
 
-		if (!activeConv) {
-			await conversationsStore.createConversation();
+		if (!targetConv) {
+			await conversationsStore.createConversation(undefined, undefined, { mode: options.mode });
 			isNewConversation = true;
 		}
 
@@ -831,10 +895,12 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				content,
 				MessageType.TEXT,
 				parentIdForUserMessage ?? '-1',
-				allExtras
+				allExtras,
+				false,
+				options.requestProfile
 			);
 
-			if (isNewConversation && content)
+			if (isNewConversation && content && options.mode !== 'story')
 				await conversationsStore.applyTitleFromContent(currentConv.id, content);
 
 			const assistantMessage = await this.createAssistantMessage(userMessage.id);
@@ -843,10 +909,18 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			await this.streamChatCompletion(
 				conversationsStore.activeMessages.slice(0, -1),
 				assistantMessage,
+				options.onComplete
+					? async () => {
+						const messages = await DatabaseService.getConversationMessages(currentConv.id);
+						const completed = messages.find((message) => message.id === assistantMessage.id);
+						if (completed) await options.onComplete?.(completed);
+					}
+					: undefined,
 				undefined,
 				undefined,
-				undefined,
-				settingsStore.config.titleGenerationUseLLM && isNewConversation ? content : undefined
+				settingsStore.config.titleGenerationUseLLM && isNewConversation && options.mode !== 'story'
+					? content
+					: undefined
 			);
 		} catch (error) {
 			if (isAbortError(error)) {
@@ -872,6 +946,63 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			});
 		}
 	}
+
+	private async sendMessageToInactiveConversation(
+		conversation: DatabaseConversation,
+		content: string,
+		extras: DatabaseMessageExtra[] | undefined,
+		options: SendMessageOptions
+	): Promise<void> {
+		const allMessages = await DatabaseService.getConversationMessages(conversation.id);
+		const path = filterByLeafNodeId(allMessages, conversation.currNode ?? '', false) as DatabaseMessage[];
+		const parentId = path[path.length - 1]?.id ?? await DatabaseService.createRootMessage(conversation.id);
+		const userMessage = await DatabaseService.createMessageBranch(
+			{
+				children: [],
+				content,
+				convId: conversation.id,
+				extra: extras,
+				requestProfile: options.requestProfile ? { ...options.requestProfile } : undefined,
+				role: MessageRole.USER,
+				timestamp: Date.now(),
+				toolCalls: '',
+				type: MessageType.TEXT
+			},
+			parentId
+		);
+		const assistantMessage = await DatabaseService.createMessageBranch(
+			{
+				children: [],
+				content: '',
+				convId: conversation.id,
+				model: null,
+				role: MessageRole.ASSISTANT,
+				timestamp: Date.now(),
+				toolCalls: '',
+				type: MessageType.TEXT
+			},
+			userMessage.id
+		);
+		await DatabaseService.updateCurrentNode(conversation.id, assistantMessage.id);
+		conversationsStore.updateConversationTimestamp(conversation.id);
+		this.setChatLoading(conversation.id, true);
+		try {
+			await this.streamChatCompletion(
+				[...path, userMessage],
+				assistantMessage,
+				options.onComplete
+					? async () => {
+						const messages = await DatabaseService.getConversationMessages(conversation.id);
+						const completed = messages.find((message) => message.id === assistantMessage.id);
+						if (completed) await options.onComplete?.(completed);
+					}
+					: undefined
+			);
+		} finally {
+			this.setChatLoading(conversation.id, false);
+		}
+	}
+
 	setChatLoading(convId: string, loading: boolean): void {
 		if (loading) {
 			this.activity.markLocal(convId);
@@ -943,6 +1074,8 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		modelOverride?: string | null,
 		firstUserMessageContent?: string
 	): Promise<void> {
+		const resolvedRequestProfile = resolveChatRequestProfile(allMessages);
+		const requestMessages = resolvedRequestProfile?.messages ?? allMessages;
 		// the ::model suffix in the stream identity is only for router mode, where it routes to the
 		// owning child. in single-model mode the identity stays the bare conv id so that attach, stop
 		// and reattach all agree, regardless of fresh send vs regenerate passing a resolved model
@@ -950,8 +1083,12 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 		if (serverStore.isRouterMode) {
 			const conversationModel = getConversationModel(allMessages);
-
-			effectiveModel = modelOverride || modelsStore.selectedModelName || conversationModel;
+			const activeConversationId = conversationsStore.activeConversation?.id;
+			effectiveModel =
+				modelOverride ||
+				(activeConversationId === assistantMessage.convId
+					? modelsStore.selectedModelName || conversationModel
+					: conversationModel || modelsStore.selectedModelName);
 		}
 
 		// a router serves the props the request options read once the model is loaded, so the
@@ -980,6 +1117,11 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		let modelPersisted = false;
 
 		const convId = assistantMessage.convId;
+		const targetConversation =
+			conversationsStore.activeConversation?.id === convId
+				? conversationsStore.activeConversation
+				: await DatabaseService.getConversation(convId);
+		const apiOptions = this.getApiOptions(targetConversation);
 
 		// Tracks the last message created in this flow. Used as the parent for the next
 		// turn's assistant message so createAssistantMessage does not have to read
@@ -1268,16 +1410,18 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				await DatabaseService.updateMessage(messageId, updates);
 			}
 		};
-		const toolPolicy = this.toolPolicy();
+		const toolPolicy = targetConversation
+			? { disabledToolCategories: targetConversation.disabledToolCategories, disabledTools: targetConversation.disabledTools }
+			: this.toolPolicy();
 
-		{
+		if (!resolvedRequestProfile?.disableAgentic) {
 			const agenticResult = await agenticStore.runAgenticFlow({
 				callbacks: streamCallbacks,
 				conversationId: convId,
 				flowRootMessageId: assistantMessage.id,
-				messages: allMessages,
+				messages: requestMessages,
 				options: {
-					...this.getApiOptions(),
+					...apiOptions,
 					...(effectiveModel ? { model: effectiveModel } : {})
 				},
 				signal: abortController.signal,
@@ -1305,9 +1449,12 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		}
 
 		await ChatService.sendMessage(
-			allMessages,
+			requestMessages,
 			{
-				...this.getApiOptions(),
+				...apiOptions,
+				...(resolvedRequestProfile
+					? { tool_choice: resolvedRequestProfile.tool_choice, tools: resolvedRequestProfile.tools }
+					: {}),
 				...(effectiveModel ? { model: effectiveModel } : {}),
 				onChunk: streamCallbacks.onChunk,
 				onComplete: async (
@@ -1339,10 +1486,19 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 					if (resolvedModel) uiUpdate.model = resolvedModel;
 
-					conversationsStore.updateMessageAtIndex(idx, uiUpdate);
-					await conversationsStore.updateCurrentNode(currentMessageId);
+					if (conversationsStore.activeConversation?.id === convId) {
+						conversationsStore.updateMessageAtIndex(idx, uiUpdate);
+						await conversationsStore.updateCurrentNode(currentMessageId);
+					} else {
+						await DatabaseService.updateCurrentNode(convId, currentMessageId);
+					}
 					cleanupStreamingState();
 					this.notifyResponseReady();
+					await this.notifyRequestProfileComplete(resolvedRequestProfile, {
+						...assistantMessage,
+						...uiUpdate,
+						id: currentMessageId
+					});
 
 					// Pre-encode conversation in KV cache for faster next turn
 					if (settingsStore.config.preEncodeConversation) {

@@ -19,10 +19,6 @@ export class RouterService {
 		return routeId?.startsWith('/(chat)/story') ?? false;
 	}
 
-	static settings(section: string): string {
-		return `${ROUTES.SETTINGS}/${section}`;
-	}
-
 	static story(id: string): string {
 		return `${ROUTES.STORY}/${id}`;
 	}

@@ -23,6 +23,7 @@ import {
 } from '$lib/stores/conversations/preferences.svelte';
 import { settingsStore } from '$lib/stores/settings/index.svelte';
 import { tabsStore } from '$lib/stores/tabs.svelte';
+import type { ConversationMode, StoryMetadata } from '$lib/types/database';
 import { filterByLeafNodeId, findLeafNode, generateConversationTitle } from '$lib/utils';
 import { SvelteSet } from 'svelte/reactivity';
 import { toast } from 'svelte-sonner';
@@ -266,9 +267,11 @@ class ConversationsStore implements ConversationsPreferencesHost {
 	 */
 	async createConversation(
 		name?: string,
-		draft?: { message: string; files: ChatUploadedFile[] }
+		draft?: { message: string; files: ChatUploadedFile[] },
+		options: { mode?: ConversationMode } = {}
 	): Promise<string> {
-		const conversationName = name || `Chat ${new Date().toLocaleString()}`;
+		const mode = options.mode ?? 'chat';
+		const conversationName = name || `${mode === 'story' ? 'Story' : 'Chat'} ${new Date().toLocaleString()}`;
 		// The tool policy is seeded from the current defaults: edits made inside
 		// the conversation afterwards live on its row and do not flow back into
 		// the defaults. Working directory picked on the new-chat screen gets
@@ -276,6 +279,7 @@ class ConversationsStore implements ConversationsPreferencesHost {
 		// new chats.
 		const conversation = await DatabaseService.createConversation(conversationName, {
 			cwd: this.preferences.pendingCwd ?? undefined,
+			mode,
 			reasoningEffort: this.preferences.pendingReasoningEffort,
 			...this.preferences.getToolPolicySnapshot()
 		});
@@ -290,7 +294,7 @@ class ConversationsStore implements ConversationsPreferencesHost {
 			draftMessagesStore.saveDraftMessage(conversation.id, draft.message, draft.files);
 		}
 
-		await goto(RouterService.chat(conversation.id));
+		await goto(RouterService.conversation(conversation));
 
 		// the draft moved to the new conversation, so drop the copy saved for the new-chat screen
 		if (draft) {
@@ -453,7 +457,7 @@ class ConversationsStore implements ConversationsPreferencesHost {
 
 			this.conversations = [newConv, ...this.conversations];
 
-			await goto(RouterService.chat(newConv.id));
+			await goto(RouterService.conversation(newConv));
 
 			toast.success('Conversation forked');
 
@@ -696,6 +700,15 @@ class ConversationsStore implements ConversationsPreferencesHost {
 			this.applyConversationUpdate(convId, { name });
 		} catch (error) {
 			console.error('Failed to update conversation name:', error);
+		}
+	}
+
+	async updateConversationStory(convId: string, story: StoryMetadata | undefined): Promise<void> {
+		try {
+			await DatabaseService.updateConversation(convId, { story });
+			this.applyConversationUpdate(convId, { story });
+		} catch (error) {
+			console.error('Failed to update story metadata:', error);
 		}
 	}
 

@@ -2,8 +2,7 @@
 	import { page } from '$app/state';
 	import { APP_NAME, ROUTES } from '$lib/constants';
 	import { loadConversationForRoute } from '$lib/services/conversation-route.service';
-	import { isLoading } from '$lib/stores/chat.svelte';
-	import { activeConversation } from '$lib/stores/conversations.svelte';
+	import { chatStore, conversationsStore } from '$lib/stores';
 	import { storyStore } from '$lib/stores/story.svelte';
 
 	let storyId = $derived(page.params.id);
@@ -22,7 +21,7 @@
 	$effect(() => {
 		if (typeof window !== 'undefined') {
 			const handleBeforeUnload = () => {
-				if (isLoading()) {
+				if (chatStore.isLoading) {
 					void storyStore.stopGeneration();
 				}
 			};
@@ -37,5 +36,5 @@
 </script>
 
 <svelte:head>
-	<title>{activeConversation()?.name || 'Story mode'} - {APP_NAME}</title>
+	<title>{conversationsStore.activeConversation?.name || 'Story mode'} - {APP_NAME}</title>
 </svelte:head>

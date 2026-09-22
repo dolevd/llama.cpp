@@ -20,6 +20,7 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { CONVERSATION_TABS_LOCALSTORAGE_KEY, NEW_CHAT_TAB_ID, ROUTES } from '$lib/constants';
+import { DatabaseService } from '$lib/services/database.service';
 import { RouterService } from '$lib/services/router.service';
 import type { TabView } from '$lib/utils/chat-tabs';
 import { untrack } from 'svelte';
