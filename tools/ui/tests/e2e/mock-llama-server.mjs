@@ -90,6 +90,22 @@ const scenarios = {
 				}
 			]
 		})
+	},
+	storyChapterBrassSeed: {
+		content: ['The Brass Seed ', 'chapter text.'],
+		delayMs: 260
+	},
+	storyChapterRootsOfGlass: {
+		content: ['Roots Of Glass ', 'chapter text.'],
+		delayMs: 260
+	},
+	storyChapterBorrowedFlame: {
+		content: ['Borrowed Flame ', 'chapter text.'],
+		delayMs: 260
+	},
+	storyChapterFutureShelf: {
+		content: ['The Future Shelf ', 'chapter text.'],
+		delayMs: 260
 	}
 };
 
@@ -253,7 +269,7 @@ async function streamChatCompletion(res, body, scenario) {
 
 	for (const contentChunk of scenario.content ?? []) {
 		predicted++;
-		await delay(120);
+		await delay(scenario.delayMs ?? 120);
 		writeSse(res, buildChunk({ id, model, content: contentChunk, predicted }));
 	}
 
@@ -442,6 +458,12 @@ function selectScenario(body) {
 	if (text.includes('mock-scenario: tool-call')) return scenarios.toolCall;
 	if (isStoryOutlineRequest(body) && text.includes('mock-scenario: story-outline')) {
 		return countStoryOutlineRequests() <= 1 ? scenarios.storyOutlineA : scenarios.storyOutlineB;
+	}
+	if (text.includes('mock-scenario: story-outline-branches')) {
+		if (text.includes('the lantern shows which memories')) return scenarios.storyChapterFutureShelf;
+		if (text.includes('ilan steals the lantern')) return scenarios.storyChapterBorrowedFlame;
+		if (text.includes('the grove reveals why')) return scenarios.storyChapterRootsOfGlass;
+		if (text.includes('mira finds the seed ticking')) return scenarios.storyChapterBrassSeed;
 	}
 	return scenarios.default;
 }

@@ -378,7 +378,11 @@
 		if (message.role === MessageRole.USER) {
 			// For user messages, trim to avoid accidental whitespace
 			const finalExtras = await getMergedExtras();
-			await chatActions.editUserMessagePreserveResponses(message, editedContent.trim(), finalExtras);
+			await chatActions.editUserMessagePreserveResponses(
+				message,
+				editedContent.trim(),
+				finalExtras
+			);
 		}
 
 		isEditing = false;
@@ -402,7 +406,7 @@
 	}
 </script>
 
-<div>
+<div class="chat-message" class:chat-message--synthetic={isSynthetic} data-message-id={message.id}>
 	{#if message.role === MessageRole.SYSTEM}
 		<ChatMessageSystem bind:textareaElement class={className} {message} />
 	{:else if mcpPromptExtra}

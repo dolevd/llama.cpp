@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { STORY_OUTLINE_TOOL_INSTRUCTION, STORY_OUTLINE_TOOL_NAME } from '$lib/constants';
 import {
 	generateStoryChaptersSequentially,
+	getActiveStoryMetadata,
+	getStoryChapterOutlineItems,
+	getStoryMetadataByMessageId,
 	getStoryChapterPrompt,
 	parseStoryOutlineText,
 	parseStoryOutlineToolCalls,
@@ -10,7 +13,7 @@ import {
 	storyOutlineToText
 } from '$lib/utils';
 import { MessageRole } from '$lib/enums';
-import type { DatabaseMessage } from '$lib/types';
+import type { DatabaseConversation, DatabaseMessage, StoryMetadata } from '$lib/types';
 
 function toolCall(name: string, args: unknown): string {
 	return JSON.stringify([
@@ -168,6 +171,137 @@ describe('storyMetadataFromOutlineMessage', () => {
 			summary: 'A mage follows a vanished road into an older kingdom.'
 		});
 		expect(story?.outlineText).toContain('# The Ember Gate');
+	});
+});
+
+describe('branch-local story metadata', () => {
+	const conversation: DatabaseConversation = {
+		currNode: 'outline-b',
+		id: 'conv-1',
+		lastModified: 123,
+		mode: 'story',
+		name: 'Story'
+	};
+	const storyA: StoryMetadata = {
+		approvedAt: 1,
+		chapterSummaries: [{ summary: 'The first A chapter.', title: 'A One' }],
+		initialAssistantMessageId: 'outline-a',
+		phase: 'complete',
+		title: 'Outline A',
+		updatedAt: 1
+	};
+	const storyB: StoryMetadata = {
+		approvedAt: 2,
+		chapterSummaries: [{ summary: 'The first B chapter.', title: 'B One' }],
+		initialAssistantMessageId: 'outline-b',
+		phase: 'generating',
+		title: 'Outline B',
+		updatedAt: 2
+	};
+
+	it('keeps sibling outlines attached to their own assistant messages', () => {
+		const messages = [
+			{ ...message(MessageRole.ASSISTANT, '', 'outline-a'), story: storyA },
+			{ ...message(MessageRole.ASSISTANT, '', 'outline-b'), story: storyB }
+		];
+		const stories = getStoryMetadataByMessageId(conversation, messages);
+
+		expect(stories.get('outline-a')?.title).toBe('Outline A');
+		expect(stories.get('outline-b')?.title).toBe('Outline B');
+		expect(getActiveStoryMetadata(conversation, [messages[1]])?.title).toBe('Outline B');
+	});
+
+	it('reads legacy conversation metadata for its matching outline message', () => {
+		const legacyConversation = { ...conversation, story: storyA };
+		const outlineMessage = message(MessageRole.ASSISTANT, '', 'outline-a');
+
+		expect(getStoryMetadataByMessageId(legacyConversation, [outlineMessage]).get('outline-a')).toBe(
+			storyA
+		);
+	});
+});
+
+describe('chapter outline progress', () => {
+	const chapters = [
+		{ summary: 'First summary.', title: 'One' },
+		{ summary: 'Second summary.', title: 'Two' },
+		{ summary: 'Third summary.', title: 'Three' }
+	];
+
+	it('targets assistant responses and reports generated, generating, and pending states', () => {
+		const story: StoryMetadata = {
+			approvedAt: 1,
+			chapterMessageIds: ['assistant-1'],
+			chapterSummaries: chapters,
+			currentChapterIndex: 1,
+			initialAssistantMessageId: 'outline-1',
+			phase: 'generating',
+			updatedAt: 1
+		};
+		const firstPrompt = {
+			...message(MessageRole.USER, getStoryChapterPrompt(0, chapters[0].summary), 'user-1'),
+			parent: 'outline-1'
+		};
+		const secondPrompt = {
+			...message(MessageRole.USER, getStoryChapterPrompt(1, chapters[1].summary), 'user-2'),
+			parent: 'assistant-1'
+		};
+		const messages = [
+			message(MessageRole.ASSISTANT, '', 'outline-1'),
+			firstPrompt,
+			{ ...message(MessageRole.ASSISTANT, 'Chapter one.', 'assistant-1'), parent: 'user-1' },
+			secondPrompt,
+			{ ...message(MessageRole.ASSISTANT, 'Chapter two.', 'assistant-2'), parent: 'user-2' }
+		];
+
+		expect(getStoryChapterOutlineItems(story, messages)).toEqual([
+			expect.objectContaining({ messageId: 'assistant-1', status: 'generated' }),
+			expect.objectContaining({ messageId: 'assistant-2', status: 'generating' }),
+			expect.objectContaining({ messageId: undefined, status: 'pending' })
+		]);
+	});
+
+	it('reconstructs response targets for completed legacy stories', () => {
+		const story: StoryMetadata = {
+			approvedAt: 1,
+			chapterSummaries: [chapters[0]],
+			currentChapterIndex: 1,
+			initialAssistantMessageId: 'outline-1',
+			phase: 'complete',
+			updatedAt: 1
+		};
+		const prompt = {
+			...message(MessageRole.USER, getStoryChapterPrompt(0, chapters[0].summary), 'user-1'),
+			parent: 'outline-1'
+		};
+		const response = {
+			...message(MessageRole.ASSISTANT, 'Chapter one.', 'assistant-1'),
+			parent: 'user-1'
+		};
+
+		expect(
+			getStoryChapterOutlineItems(story, [
+				message(MessageRole.ASSISTANT, '', 'outline-1'),
+				prompt,
+				response
+			])[0]
+		).toMatchObject({ messageId: 'assistant-1', status: 'generated' });
+	});
+
+	it('returns the interrupted chapter to pending after generation stops', () => {
+		const story: StoryMetadata = {
+			approvedAt: 1,
+			chapterSummaries: chapters,
+			currentChapterIndex: 1,
+			phase: 'stopped',
+			updatedAt: 1
+		};
+
+		expect(getStoryChapterOutlineItems(story, []).map((item) => item.status)).toEqual([
+			'generated',
+			'pending',
+			'pending'
+		]);
 	});
 });
 

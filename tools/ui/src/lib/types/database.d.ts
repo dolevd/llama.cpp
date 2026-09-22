@@ -29,6 +29,7 @@ export interface StoryChapterSummary {
 
 export interface StoryMetadata {
 	approvedAt?: number;
+	chapterMessageIds?: Array<string | undefined>;
 	chapterSummaries?: StoryChapterSummary[];
 	currentChapterIndex?: number;
 	error?: string;
@@ -170,6 +171,7 @@ export interface DatabaseMessage {
 	/** Internal flag marking a UI-generated message (e.g. a cwd change). The row is sent to the model as a "user" turn so chat templates accept it; the flag is only read by the renderer. */
 	isSynthetic?: boolean;
 	requestProfile?: MessageRequestProfile;
+	story?: StoryMetadata;
 	children: string[];
 	extra?: DatabaseMessageExtra[];
 	timings?: ChatMessageTimings;

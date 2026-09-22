@@ -1,3 +1,4 @@
+export { default as StoryChapterOutline } from './StoryChapterOutline.svelte';
 export { default as StoryMessageAddons } from './StoryMessageAddons.svelte';
 export { default as StoryOutlineCard } from './StoryOutlineCard.svelte';
 export { default as StoryOutlineMessage } from './StoryOutlineMessage.svelte';
