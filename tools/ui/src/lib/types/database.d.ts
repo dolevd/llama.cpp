@@ -29,6 +29,7 @@ export interface StoryChapterSummary {
 
 export interface StoryMetadata {
 	approvedAt?: number;
+	chapterMessageIds?: Array<string | undefined>;
 	chapterSummaries?: StoryChapterSummary[];
 	currentChapterIndex?: number;
 	error?: string;
@@ -172,6 +173,7 @@ export interface DatabaseMessage {
 	/** Steps a compaction node keeps as written before it, read by the model after its summary */
 	kept?: number;
 	requestProfile?: MessageRequestProfile;
+	story?: StoryMetadata;
 	children: string[];
 	extra?: DatabaseMessageExtra[];
 	timings?: ChatMessageTimings;

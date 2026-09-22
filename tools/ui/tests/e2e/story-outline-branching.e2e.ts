@@ -225,6 +225,81 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		}
 	});
 
+	test('keeps chapter outlines and response targets separate across approved branches', async ({
+		page
+	}) => {
+		await page.goto('/#/story');
+		await page.locator('input[type="file"]').setInputFiles({
+			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots."),
+			mimeType: 'text/plain',
+			name: 'story-snippet.txt'
+		});
+
+		const textarea = page.getByPlaceholder('Edit the story prompt, then attach context...');
+
+		await textarea.fill('mock-scenario: story-outline-branches');
+		await page.getByRole('button', { name: 'Send' }).click();
+		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
+
+		await page
+			.getByLabel('Assistant message with actions')
+			.getByRole('button', { name: 'Regenerate' })
+			.click();
+		await expect(page.getByRole('heading', { name: 'The Lantern Archive' })).toBeVisible();
+
+		await page.getByRole('button', { name: 'Approve story outline' }).click();
+		const chapterOutline = page.getByRole('navigation', { name: 'Story chapter outline' });
+
+		await expect(chapterOutline).toContainText('Borrowed Flame');
+		await expect(
+			chapterOutline.getByRole('button', { name: 'Chapter 1: Borrowed Flame, generating' })
+		).toBeVisible();
+		await expect(
+			chapterOutline
+				.locator('li')
+				.filter({ hasText: 'The Future Shelf' })
+				.locator('div.text-muted-foreground')
+		).toBeVisible();
+		await expect(
+			chapterOutline.getByRole('button', { name: 'Chapter 2: The Future Shelf, generated' })
+		).toBeVisible();
+
+		const borrowedFlameResponse = page
+			.getByLabel('Assistant message with actions')
+			.filter({ hasText: 'Borrowed Flame chapter text.' });
+
+		await chapterOutline
+			.getByRole('button', { name: 'Chapter 1: Borrowed Flame, generated' })
+			.click();
+		await expect(borrowedFlameResponse).toBeInViewport();
+
+		await page.getByRole('button', { name: 'Previous version' }).click();
+		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
+		await expect(chapterOutline).toHaveCount(0);
+
+		await page.getByRole('button', { name: 'Approve story outline' }).click();
+		const clockworkOutline = page.getByRole('navigation', { name: 'Story chapter outline' });
+
+		await expect(
+			clockworkOutline.getByRole('button', { name: 'Chapter 2: Roots Of Glass, generated' })
+		).toBeVisible();
+		await expect(clockworkOutline).toContainText('The Brass Seed');
+		await expect(clockworkOutline).not.toContainText('Borrowed Flame');
+
+		await page.getByRole('button', { name: 'Next version' }).click();
+		const restoredLanternOutline = page.getByRole('navigation', {
+			name: 'Story chapter outline'
+		});
+
+		await expect(restoredLanternOutline).toContainText('Borrowed Flame');
+		await expect(restoredLanternOutline).not.toContainText('The Brass Seed');
+		await expect(
+			restoredLanternOutline.getByRole('button', {
+				name: 'Chapter 2: The Future Shelf, generated'
+			})
+		).toBeVisible();
+	});
+
 	test('keeps story outline request behavior when editing and resending the first prompt', async ({
 		page
 	}) => {
@@ -270,8 +345,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 					messages?: Array<{ content?: unknown }>;
 					tool_choice?: unknown;
 				};
-			}) =>
-				entry.body?.tool_choice === 'required'
+			}) => entry.body?.tool_choice === 'required'
 		);
 
 		expect(storyRequests).toHaveLength(2);

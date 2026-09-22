@@ -159,6 +159,8 @@ export { sanitizeKeyValuePairKey, sanitizeKeyValuePairValue } from './sanitize';
 // Story utilities
 export {
 	generateStoryChaptersSequentially,
+	getActiveStoryMetadata,
+	getStoryChapterOutlineItems,
 	getStoryMetadataByMessageId,
 	getStoryChapterPrompt,
 	parseStoryOutlineToolCalls,
@@ -168,6 +170,8 @@ export {
 	storyOutlineToText,
 	stripStoryOutlineInstruction,
 	type ResolvedRequestProfile,
+	type StoryChapterOutlineItem,
+	type StoryChapterStatus,
 	type StoryOutline,
 	type StoryOutlineParseResult
 } from './story';

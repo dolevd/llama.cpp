@@ -26,6 +26,14 @@ export interface StoryOutlineParseResult {
 	error?: string;
 }
 
+export type StoryChapterStatus = 'generated' | 'generating' | 'pending';
+
+export interface StoryChapterOutlineItem extends StoryChapterSummary {
+	index: number;
+	messageId?: string;
+	status: StoryChapterStatus;
+}
+
 export interface ResolvedRequestProfile {
 	disableAgentic: true;
 	messages: DatabaseMessage[];
@@ -97,7 +105,9 @@ function validateOutline(value: unknown): StoryOutlineParseResult {
 	};
 }
 
-export function parseStoryOutlineToolCalls(toolCallsValue?: string | null): StoryOutlineParseResult {
+export function parseStoryOutlineToolCalls(
+	toolCallsValue?: string | null
+): StoryOutlineParseResult {
 	if (!toolCallsValue?.trim()) {
 		return { error: 'The model did not call the story outline tool.' };
 	}
@@ -246,6 +256,7 @@ function getInitialPromptForOutlineMessage(
 
 	for (let i = assistantIndex - 1; i >= 0; i--) {
 		const candidate = messages[i];
+
 		if (candidate.role === MessageRole.USER) {
 			return stripStoryOutlineInstruction(candidate.content);
 		}
@@ -264,21 +275,24 @@ export function getStoryMetadataByMessageId(
 		return result;
 	}
 
-	const activeStory = conversation.story;
+	const legacyStory = conversation.story;
 
 	for (const message of messages) {
 		if (message.role !== MessageRole.ASSISTANT) continue;
 
 		const linkedStory =
-			activeStory?.initialAssistantMessageId === message.id ? activeStory : undefined;
+			message.story ??
+			(legacyStory?.initialAssistantMessageId === message.id ? legacyStory : undefined);
 
 		if (linkedStory && STORY_DISPLAY_PHASES.has(linkedStory.phase)) {
 			result.set(message.id, linkedStory);
+
 			continue;
 		}
 
 		const prompt = getInitialPromptForOutlineMessage(messages, message);
-		const initialPrompt = linkedStory?.initialPrompt ?? (prompt || activeStory?.initialPrompt || '');
+		const initialPrompt =
+			linkedStory?.initialPrompt ?? (prompt || legacyStory?.initialPrompt || '');
 		const derivedStory = storyMetadataFromOutlineMessage(message, initialPrompt, linkedStory);
 
 		if (derivedStory && STORY_DISPLAY_PHASES.has(derivedStory.phase)) {
@@ -287,6 +301,100 @@ export function getStoryMetadataByMessageId(
 	}
 
 	return result;
+}
+
+export function getActiveStoryMetadata(
+	conversation: DatabaseConversation | null | undefined,
+	messages: DatabaseMessage[]
+): StoryMetadata | undefined {
+	const storyByMessageId = getStoryMetadataByMessageId(conversation, messages);
+
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const story = storyByMessageId.get(messages[index].id);
+
+		if (story) return story;
+	}
+
+	return conversation?.story;
+}
+
+function getChapterResponseMessageIds(
+	story: StoryMetadata,
+	messages: DatabaseMessage[]
+): Array<string | undefined> {
+	const messageById = new Map(messages.map((message) => [message.id, message]));
+	const responseIds = story.chapterMessageIds ? [...story.chapterMessageIds] : [];
+	const outlineIndex = messages.findIndex(
+		(message) => message.id === story.initialAssistantMessageId
+	);
+
+	let searchIndex = Math.max(outlineIndex + 1, 0);
+
+	for (let index = 0; index < (story.chapterSummaries?.length ?? 0); index++) {
+		const storedId = responseIds[index];
+
+		if (storedId && messageById.get(storedId)?.role === MessageRole.ASSISTANT) {
+			searchIndex = Math.max(
+				searchIndex,
+				messages.findIndex((message) => message.id === storedId) + 1
+			);
+
+			continue;
+		}
+
+		responseIds[index] = undefined;
+		const prompt = getStoryChapterPrompt(index, story.chapterSummaries![index].summary);
+		const userIndex = messages.findIndex(
+			(message, messageIndex) =>
+				messageIndex >= searchIndex &&
+				message.role === MessageRole.USER &&
+				message.content === prompt
+		);
+
+		if (userIndex === -1) continue;
+
+		const userMessage = messages[userIndex];
+		const assistantIndex = messages.findIndex(
+			(message, messageIndex) =>
+				messageIndex > userIndex &&
+				message.role === MessageRole.ASSISTANT &&
+				message.parent === userMessage.id
+		);
+
+		if (assistantIndex === -1) {
+			searchIndex = userIndex + 1;
+
+			continue;
+		}
+
+		responseIds[index] = messages[assistantIndex].id;
+		searchIndex = assistantIndex + 1;
+	}
+
+	return responseIds;
+}
+
+export function getStoryChapterOutlineItems(
+	story: StoryMetadata,
+	messages: DatabaseMessage[]
+): StoryChapterOutlineItem[] {
+	const responseIds = getChapterResponseMessageIds(story, messages);
+	const currentChapterIndex = story.currentChapterIndex ?? 0;
+
+	return (story.chapterSummaries ?? []).map((chapter, index) => {
+		const hasCompletedMessage = Boolean(story.chapterMessageIds?.[index]);
+		const isGenerated =
+			hasCompletedMessage || story.phase === 'complete' || index < currentChapterIndex;
+		const isGenerating =
+			!isGenerated && story.phase === 'generating' && index === currentChapterIndex;
+
+		return {
+			...chapter,
+			index,
+			messageId: responseIds[index],
+			status: isGenerated ? 'generated' : isGenerating ? 'generating' : 'pending'
+		};
+	});
 }
 
 export function getStoryChapterPrompt(index: number, summary: string): string {
@@ -322,12 +430,7 @@ export function parseStoryOutlineText(text: string): StoryOutlineParseResult {
 	const lines = trimmed.split(/\r?\n/);
 	const titleLineIndex = lines.findIndex((line) => line.trim().startsWith('# '));
 	const title =
-		titleLineIndex === -1
-			? ''
-			: lines[titleLineIndex]
-					.trim()
-					.replace(/^#\s+/, '')
-					.trim();
+		titleLineIndex === -1 ? '' : lines[titleLineIndex].trim().replace(/^#\s+/, '').trim();
 
 	if (!title) {
 		return { error: 'The story outline is missing a title.' };

@@ -1,22 +1,23 @@
-import { toast } from 'svelte-sonner';
 import { SETTINGS_KEYS } from '$lib/constants';
+import { DatabaseService } from '$lib/services/database.service';
 import { chatStore } from '$lib/stores/chat.svelte';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
-import { DatabaseService } from '$lib/services/database.service';
 import { config } from '$lib/stores/settings.svelte';
-import {
-	notifyStoryApprovalNeeded,
-	notifyStoryComplete,
-	generateStoryChaptersSequentially,
-	parseStoryOutlineText,
-	storyMetadataFromOutlineMessage
-} from '$lib/utils';
 import type {
 	DatabaseMessage,
 	DatabaseMessageExtra,
 	MessageRequestProfile,
 	StoryMetadata
 } from '$lib/types';
+import {
+	generateStoryChaptersSequentially,
+	getActiveStoryMetadata,
+	notifyStoryApprovalNeeded,
+	notifyStoryComplete,
+	parseStoryOutlineText,
+	storyMetadataFromOutlineMessage
+} from '$lib/utils';
+import { toast } from 'svelte-sonner';
 
 const STORY_OUTLINE_REQUEST_PROFILE: MessageRequestProfile = { kind: 'story_outline' };
 
@@ -39,9 +40,8 @@ class StoryStore {
 	ensureRequestProfileCompletionHandler(): void {
 		if (this.requestProfileHandlerRegistered) return;
 
-		chatStore.registerRequestProfileCompletionHandler(
-			'story_outline',
-			({ assistantMessage }) => this.captureOutline(assistantMessage)
+		chatStore.registerRequestProfileCompletionHandler('story_outline', ({ assistantMessage }) =>
+			this.captureOutline(assistantMessage)
 		);
 		this.requestProfileHandlerRegistered = true;
 	}
@@ -54,11 +54,51 @@ class StoryStore {
 		};
 	}
 
-	private async persistStory(conversationId: string, story: StoryMetadata): Promise<void> {
-		await conversationsStore.updateConversationStory(conversationId, {
+	private async persistStory(conversationId: string, story: StoryMetadata): Promise<StoryMetadata> {
+		const nextStory = {
 			...story,
 			updatedAt: Date.now()
-		});
+		};
+		const outlineMessageId = nextStory.initialAssistantMessageId;
+
+		if (!outlineMessageId) {
+			await conversationsStore.updateConversationStory(conversationId, nextStory);
+
+			return nextStory;
+		}
+
+		await DatabaseService.updateMessage(outlineMessageId, { story: nextStory });
+
+		if (conversationsStore.activeConversation?.id === conversationId) {
+			const messageIndex = conversationsStore.findMessageIndex(outlineMessageId);
+
+			if (messageIndex !== -1) {
+				conversationsStore.updateMessageAtIndex(messageIndex, { story: nextStory });
+			}
+		}
+
+		const conversation =
+			conversationsStore.activeConversation?.id === conversationId
+				? conversationsStore.activeConversation
+				: await DatabaseService.getConversation(conversationId);
+		const legacyStory = conversation?.story;
+
+		if (
+			legacyStory &&
+			(!legacyStory.initialAssistantMessageId ||
+				legacyStory.initialAssistantMessageId === outlineMessageId)
+		) {
+			await conversationsStore.updateConversationStory(conversationId, undefined);
+		}
+
+		return nextStory;
+	}
+
+	private getActiveStory(): StoryMetadata | undefined {
+		return getActiveStoryMetadata(
+			conversationsStore.activeConversation,
+			conversationsStore.activeMessages
+		);
 	}
 
 	private async activateOutlineBranch(conversationId: string, story: StoryMetadata): Promise<void> {
@@ -84,7 +124,14 @@ class StoryStore {
 		if (!userMessage) return;
 
 		const prompt = userMessage.content;
-		const baseStory = conversation.story ?? this.createBaseStory(prompt, 'outline_generating');
+		const legacyStory = conversation.story;
+		const baseStory =
+			assistantMessage.story ??
+			(legacyStory &&
+			(!legacyStory.initialAssistantMessageId ||
+				legacyStory.initialAssistantMessageId === assistantMessage.id)
+				? legacyStory
+				: this.createBaseStory(prompt, 'outline_generating'));
 		const nextStory = storyMetadataFromOutlineMessage(assistantMessage, prompt, {
 			...baseStory,
 			initialUserMessageId: userMessage.id
@@ -93,20 +140,15 @@ class StoryStore {
 		if (!nextStory) return;
 
 		if (nextStory.phase === 'error') {
-			await conversationsStore.updateConversationStory(conversation.id, {
-				...nextStory,
-				updatedAt: Date.now()
-			});
+			await this.persistStory(conversation.id, nextStory);
 			toast.error('Story outline could not be parsed', {
 				description: nextStory.error
 			});
+
 			return;
 		}
 
-		await conversationsStore.updateConversationStory(conversation.id, {
-			...nextStory,
-			updatedAt: Date.now()
-		});
+		await this.persistStory(conversation.id, nextStory);
 		await conversationsStore.updateConversationName(conversation.id, nextStory.title!);
 
 		toast.info('Story outline ready for approval');
@@ -122,6 +164,7 @@ class StoryStore {
 
 			const settle = (message?: DatabaseMessage) => {
 				if (settled) return;
+
 				settled = true;
 				this.activeChapterStops.delete(conversationId);
 				resolve(message);
@@ -167,17 +210,11 @@ class StoryStore {
 
 	async regenerateOutline(storyOverride?: StoryMetadata): Promise<void> {
 		const activeConversation = conversationsStore.activeConversation;
-		const story = storyOverride ?? activeConversation?.story;
+		const story = storyOverride ?? this.getActiveStory();
 
 		if (!activeConversation || !story?.initialAssistantMessageId || !story.initialPrompt) return;
 
 		await this.activateOutlineBranch(activeConversation.id, story);
-
-		await this.persistStory(activeConversation.id, {
-			...story,
-			error: undefined,
-			phase: 'outline_generating'
-		});
 
 		await chatStore.regenerateMessageWithBranching(story.initialAssistantMessageId, {
 			conversationId: activeConversation.id,
@@ -187,7 +224,7 @@ class StoryStore {
 
 	async approveOutline(outlineText: string, storyOverride?: StoryMetadata): Promise<void> {
 		const activeConversation = conversationsStore.activeConversation;
-		const currentStory = storyOverride ?? activeConversation?.story;
+		const currentStory = storyOverride ?? this.getActiveStory();
 
 		if (!activeConversation || !currentStory) return;
 
@@ -203,6 +240,7 @@ class StoryStore {
 				phase: 'awaiting_approval'
 			});
 			toast.error('Story outline needs a quick edit', { description: parseResult.error });
+
 			return;
 		}
 
@@ -210,6 +248,7 @@ class StoryStore {
 		const approvedStory: StoryMetadata = {
 			...currentStory,
 			approvedAt: Date.now(),
+			chapterMessageIds: [],
 			chapterSummaries: outline.chapters,
 			currentChapterIndex: 0,
 			error: undefined,
@@ -221,33 +260,45 @@ class StoryStore {
 		};
 
 		await conversationsStore.updateConversationName(activeConversation.id, outline.title);
-		await this.persistStory(activeConversation.id, approvedStory);
+		let generationStory = await this.persistStory(activeConversation.id, approvedStory);
+
 		this.stoppedConversationIds.delete(activeConversation.id);
 
 		try {
 			await generateStoryChaptersSequentially(
 				outline.chapters,
-				async (prompt) => {
+				async (prompt, _chapter, index) => {
 					if (this.stoppedConversationIds.has(activeConversation.id)) {
 						throw new StoryGenerationStoppedError();
 					}
 
-					await this.generateChapter(activeConversation.id, prompt);
+					const assistantMessage = await this.generateChapter(activeConversation.id, prompt);
 
 					if (this.stoppedConversationIds.has(activeConversation.id)) {
 						throw new StoryGenerationStoppedError();
+					}
+
+					if (assistantMessage) {
+						const chapterMessageIds = [...(generationStory.chapterMessageIds ?? [])];
+
+						chapterMessageIds[index] = assistantMessage.id;
+						generationStory = await this.persistStory(activeConversation.id, {
+							...generationStory,
+							chapterMessageIds
+						});
 					}
 				},
-				(_chapter, i) =>
-					this.persistStory(activeConversation.id, {
-						...approvedStory,
+				async (_chapter, i) => {
+					generationStory = await this.persistStory(activeConversation.id, {
+						...generationStory,
 						currentChapterIndex: i,
 						phase: 'generating'
-					})
+					});
+				}
 			);
 
-			await this.persistStory(activeConversation.id, {
-				...approvedStory,
+			generationStory = await this.persistStory(activeConversation.id, {
+				...generationStory,
 				currentChapterIndex: outline.chapters.length,
 				phase: 'complete'
 			});
@@ -260,19 +311,20 @@ class StoryStore {
 				this.stoppedConversationIds.has(activeConversation.id)
 			) {
 				this.stoppedConversationIds.delete(activeConversation.id);
-				const latestStory = conversationsStore.activeConversation?.story ?? approvedStory;
 
 				await this.persistStory(activeConversation.id, {
-					...latestStory,
+					...generationStory,
 					error: undefined,
 					phase: 'stopped'
 				});
+
 				return;
 			}
 
 			const message = error instanceof Error ? error.message : String(error);
+
 			await this.persistStory(activeConversation.id, {
-				...approvedStory,
+				...generationStory,
 				error: message,
 				phase: 'error'
 			});
@@ -285,7 +337,7 @@ class StoryStore {
 
 		if (!activeConversation) return;
 
-		const story = activeConversation.story;
+		const story = this.getActiveStory();
 
 		this.stoppedConversationIds.add(activeConversation.id);
 		this.activeChapterStops.get(activeConversation.id)?.();
