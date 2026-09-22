@@ -381,10 +381,10 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
 		await expect(page.getByText('Chapter reasoning')).toBeVisible();
 
-		await setReasoningEffort(page, /high Reasoning\. Click to configure\./, 'Low');
+		await setReasoningEffort(page, /High Reasoning\. Click to configure\./, 'Low');
 		await expect(page.getByText('Chapter reasoning')).toBeVisible();
 		await expect(
-			page.getByRole('button', { name: /low Reasoning\. Click to configure\./ }).last()
+			page.getByRole('button', { name: /Low Reasoning\. Click to configure\./ }).last()
 		).toBeVisible();
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
@@ -417,7 +417,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await startStoryOutline(page);
 
 		await expect(page.getByText('Chapter reasoning')).toBeVisible();
-		await setReasoningEffort(page, /high Reasoning\. Click to configure\./, 'Off');
+		await setReasoningEffort(page, /High Reasoning\. Click to configure\./, 'Off');
 		await expect(page.getByText('Chapter reasoning')).toBeVisible();
 		await expect(
 			page.getByRole('button', { name: /Disabled Reasoning\. Click to configure\./ }).last()
@@ -442,6 +442,38 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 				expect.objectContaining({ enable_thinking: false })
 			);
 			expect(request.body.thinking_budget_tokens).toBeUndefined();
+		}
+	});
+
+	test('shows the server default separately from Off on the story outline', async ({ page }) => {
+		await page.goto('/#/story');
+		await startStoryOutline(page);
+		await expect(
+			page.getByRole('navigation', { name: 'Open conversations' }).locator('a[aria-current="page"]')
+		).toHaveAttribute('href', /#\/story\//);
+
+		const defaultToggle = page
+			.getByRole('button', { name: 'Default Reasoning. Click to configure.' })
+			.last();
+		await expect(defaultToggle).toContainText('Default');
+		await defaultToggle.click();
+		await expect(page.getByRole('button', { name: 'Default Model default' })).toBeVisible();
+		await page.getByRole('button', { name: /^Off\b/ }).click();
+		await expect(
+			page.getByRole('button', { name: 'Disabled Reasoning. Click to configure.' }).last()
+		).toContainText('Off');
+
+		await page.getByRole('button', { name: 'Approve story outline' }).click();
+		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+
+		const mockState = await getMockRequests(page);
+		const storyRequests = getStoryRequests(mockState);
+		const chapterRequests = getChapterRequests(mockState);
+		expect(storyRequests).toHaveLength(1);
+		expect(storyRequests[0].body.chat_template_kwargs?.enable_thinking).toBeUndefined();
+		expect(chapterRequests).toHaveLength(2);
+		for (const request of chapterRequests) {
+			expect(request.body.chat_template_kwargs?.enable_thinking).toBe(false);
 		}
 	});
 });
