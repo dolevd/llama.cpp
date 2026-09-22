@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { Lightbulb, LightbulbOff, Check, Info } from '@lucide/svelte';
+	import { Check, Info, Lightbulb, LightbulbOff } from '@lucide/svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { REASONING_EFFORT_LABELS } from '$lib/constants';
+	import { ReasoningEffort } from '$lib/enums';
 	import { useReasoningMenu } from '$lib/hooks/use-reasoning-menu.svelte';
 	import type { ReasoningEffortLevel } from '$lib/types';
 
@@ -20,9 +22,12 @@
 	}: Props = $props();
 
 	const reasoning = useReasoningMenu();
-	let thinkingEnabled = $derived(reasoning.thinkingEnabled);
+	let isReasoningActive = $derived(reasoning.isReasoningActive);
 	let currentEffort = $derived(reasoning.currentEffort);
-	let tooltipText = $derived(thinkingEnabled ? `${currentEffort} Reasoning` : 'Disabled Reasoning');
+	let effortLabel = $derived(REASONING_EFFORT_LABELS[currentEffort]);
+	let tooltipText = $derived(
+		currentEffort === ReasoningEffort.OFF ? 'Disabled Reasoning' : `${effortLabel} Reasoning`
+	);
 	let subOpen = $state(false);
 
 	function isSelected(item: ReasoningEffortLevel): boolean {
@@ -40,15 +45,15 @@
 		<Tooltip.Root>
 			<Tooltip.Trigger>
 				<DropdownMenu.Trigger
+					aria-label={`${tooltipText}. Click to configure.`}
 					class={[
 						'flex cursor-pointer items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
 						showLabel ? 'h-8 w-auto gap-2 rounded-md px-2.5 text-sm' : 'h-6 w-6 rounded-full p-0',
-						thinkingEnabled ? 'bg-amber-400/10 hover:bg-amber-400/20' : 'bg-muted',
+						isReasoningActive ? 'bg-amber-400/10 hover:bg-amber-400/20' : 'bg-muted',
 						className
 					]}
-					aria-label={`${tooltipText}. Click to configure.`}
 				>
-					{#if thinkingEnabled}
+					{#if isReasoningActive}
 						<Lightbulb class="h-3 w-3 text-amber-400" />
 					{:else}
 						<LightbulbOff class="h-3 w-3 text-muted-foreground" />
@@ -56,9 +61,8 @@
 
 					{#if showLabel}
 						<span>{label}</span>
-						<span class="capitalize text-muted-foreground"
-							>{thinkingEnabled ? currentEffort : 'Off'}</span
-						>
+
+						<span class="text-muted-foreground">{effortLabel}</span>
 					{/if}
 				</DropdownMenu.Trigger>
 			</Tooltip.Trigger>
@@ -76,10 +80,10 @@
 
 			{#each reasoning.levels as level (level.value)}
 				<button
-					type="button"
-					class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
 					class:bg-accent={isSelected(level)}
+					class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
 					onclick={() => handleSelection(level)}
+					type="button"
 				>
 					{#if isSelected(level)}
 						<Check class="h-4 w-4 shrink-0 text-foreground" />
@@ -100,6 +104,7 @@
 							<Tooltip.Trigger>
 								<Info class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 							</Tooltip.Trigger>
+
 							<Tooltip.Content side="left">
 								<p>Maximum reasoning effort with extended context usage</p>
 							</Tooltip.Content>
