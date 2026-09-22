@@ -1,17 +1,14 @@
 <script lang="ts">
 	import { APP_NAME } from '$lib/constants';
-	import { chatStore } from '$lib/stores/chat.svelte';
-	import { conversationsStore, isConversationsInitialized } from '$lib/stores/conversations.svelte';
-	import { modelsStore } from '$lib/stores/models.svelte';
+	import { conversationsStore, modelsStore } from '$lib/stores';
 	import { onMount } from 'svelte';
 
 	onMount(async () => {
-		if (!isConversationsInitialized()) {
+		if (!conversationsStore.isInitialized) {
 			await conversationsStore.initialize();
 		}
 
 		conversationsStore.clearActiveConversation();
-		chatStore.clearUIState();
 
 		await modelsStore.fetch();
 		await modelsStore.ensureFirstModelSelected();

@@ -19,14 +19,15 @@
 	let activeId = $derived(page.params.id ?? NEW_CHAT_TAB_ID);
 
 	let tabs = $derived(
-		tabsStore.openTabs.map((id) => ({
-			id,
-			isNewChat: id === NEW_CHAT_TAB_ID,
-			name:
-				id === NEW_CHAT_TAB_ID
-					? NEW_CHAT_LABEL
-					: (conversationsStore.conversations.find((c) => c.id === id)?.name ?? UNNAMED_CHAT_LABEL)
-		}))
+		tabsStore.openTabs.map((id) => {
+			const conversation = conversationsStore.conversations.find((c) => c.id === id);
+			return {
+				id,
+				isNewChat: id === NEW_CHAT_TAB_ID,
+				mode: conversation?.mode,
+				name: id === NEW_CHAT_TAB_ID ? NEW_CHAT_LABEL : (conversation?.name ?? UNNAMED_CHAT_LABEL)
+			};
+		})
 	);
 
 	// hide the New chat button while a new-chat tab is already open

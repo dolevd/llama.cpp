@@ -232,7 +232,7 @@
 			scheduleMobileCollapse();
 		}
 
-		const conversation = conversations().find((conv) => conv.id === id);
+		const conversation = conversationsStore.conversations.find((conv) => conv.id === id);
 		await goto(conversation ? RouterService.conversation(conversation) : RouterService.chat(id));
 	}
 

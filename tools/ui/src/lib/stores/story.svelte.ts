@@ -1,8 +1,8 @@
 import { SETTINGS_KEYS } from '$lib/constants';
 import { DatabaseService } from '$lib/services/database.service';
-import { chatStore } from '$lib/stores/chat.svelte';
-import { conversationsStore } from '$lib/stores/conversations.svelte';
-import { config } from '$lib/stores/settings.svelte';
+import { chatStore } from '$lib/stores/chat/index.svelte';
+import { conversationsStore } from '$lib/stores/conversations/index.svelte';
+import { settingsStore } from '$lib/stores/settings/index.svelte';
 import type {
 	DatabaseMessage,
 	DatabaseMessageExtra,
@@ -22,7 +22,7 @@ import { toast } from 'svelte-sonner';
 const STORY_OUTLINE_REQUEST_PROFILE: MessageRequestProfile = { kind: 'story_outline' };
 
 function responseNotificationsEnabled(): boolean {
-	return config()[SETTINGS_KEYS.ENABLE_RESPONSE_NOTIFICATIONS] !== false;
+	return settingsStore.config[SETTINGS_KEYS.ENABLE_RESPONSE_NOTIFICATIONS] !== false;
 }
 
 class StoryGenerationStoppedError extends Error {
@@ -216,10 +216,7 @@ class StoryStore {
 
 		await this.activateOutlineBranch(activeConversation.id, story);
 
-		await chatStore.regenerateMessageWithBranching(story.initialAssistantMessageId, {
-			conversationId: activeConversation.id,
-			requestProfile: STORY_OUTLINE_REQUEST_PROFILE
-		});
+		await chatStore.regenerateMessageWithBranching(story.initialAssistantMessageId);
 	}
 
 	async approveOutline(outlineText: string, storyOverride?: StoryMetadata): Promise<void> {

@@ -18,6 +18,7 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { CONVERSATION_TABS_LOCALSTORAGE_KEY, NEW_CHAT_TAB_ID, ROUTES } from '$lib/constants';
+import { DatabaseService } from '$lib/services/database.service';
 import { RouterService } from '$lib/services/router.service';
 import { untrack } from 'svelte';
 
@@ -30,7 +31,10 @@ class TabsStore {
 
 	/** Navigate to a tab (the new-chat sentinel maps to the bare `#/` route) */
 	async activate(id: string): Promise<void> {
-		await goto(id === NEW_CHAT_TAB_ID ? ROUTES.START : RouterService.chat(id));
+		const route = id === NEW_CHAT_TAB_ID
+			? ROUTES.START
+			: RouterService.conversation((await DatabaseService.getConversation(id)) ?? { id });
+		await goto(route);
 	}
 
 	/** Remove all tabs (e.g. after deleting all conversations) */
@@ -67,7 +71,7 @@ class TabsStore {
 		const target = (idx > 0 ? this.openTabs[idx - 1] : this.openTabs[0]) ?? null;
 
 		if (target) {
-			await goto(target === NEW_CHAT_TAB_ID ? ROUTES.START : RouterService.chat(target));
+			await this.activate(target);
 		} else {
 			await goto(ROUTES.START);
 		}

@@ -8,6 +8,7 @@
 	interface Tab {
 		id: string;
 		isNewChat: boolean;
+		mode?: string;
 		name: string;
 	}
 
@@ -33,7 +34,7 @@
 
 	let contentOpacity = $derived(isActive ? '' : 'opacity-45 group-hover:opacity-75');
 
-	let href = $derived(tab.isNewChat ? ROUTES.START : RouterService.chat(tab.id));
+	let href = $derived(tab.isNewChat ? ROUTES.START : RouterService.conversation(tab));
 
 	function handleActivate(event: MouseEvent) {
 		// let cmd/ctrl/middle-click fall through so the browser keeps its own
