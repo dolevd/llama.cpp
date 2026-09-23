@@ -195,7 +195,7 @@
 </div>
 
 <style>
-	:global(.chat-message):last-child .chat-message-assistant {
+	:global(.chat-messages > .chat-message:last-child) .chat-message-assistant {
 		--assistant-min-height-offset: calc(
 			var(--last-user-message-height, 19rem) + var(--chat-form-height, 6rem) +
 				var(--chat-form-bottom-position, 0.5rem) + var(--chat-form-padding-top, 6rem) +
