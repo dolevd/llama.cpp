@@ -108,6 +108,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 	test('regenerates story outlines as branches and removes the attached outline on delete', async ({
 		page
 	}) => {
+		await page.setViewportSize({ height: 1000, width: 1280 });
 		await page.goto('/#/story');
 
 		await expect(page.getByRole('heading', { name: 'Start a story' })).toBeVisible();
@@ -130,6 +131,16 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await expect(page.getByText('Story outline', { exact: true })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Chapter 1: The Brass Seed' })).toBeVisible();
+
+		const assistantActions = page
+			.getByLabel('Assistant message with actions')
+			.getByRole('button', { name: 'Delete' });
+		const actionsBox = await assistantActions.boundingBox();
+		const outlineBox = await page.getByText('Story outline', { exact: true }).boundingBox();
+
+		expect(actionsBox).not.toBeNull();
+		expect(outlineBox).not.toBeNull();
+		expect(outlineBox!.y - (actionsBox!.y + actionsBox!.height)).toBeLessThan(120);
 
 		await page
 			.getByLabel('Assistant message with actions')
