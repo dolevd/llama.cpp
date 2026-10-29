@@ -120,9 +120,10 @@
 		}
 	}
 
-	// Refresh messages whenever the active conversation changes
+	// Refresh branch data when navigating or adding a response.
 	$effect(() => {
 		if (conversationsStore.activeConversation) {
+			void conversationsStore.activeConversation.currNode;
 			refreshAllMessages();
 		}
 	});

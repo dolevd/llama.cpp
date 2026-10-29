@@ -147,10 +147,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		expect(outlineBox).not.toBeNull();
 		expect(outlineBox!.y - (actionsBox!.y + actionsBox!.height)).toBeLessThan(120);
 
-		await page
-			.getByLabel('Assistant message with actions')
-			.getByRole('button', { name: 'Regenerate' })
-			.click();
+		await page.getByRole('button', { name: 'Regenerate story outline' }).click();
 
 		await expect(page.getByRole('heading', { name: 'The Lantern Archive' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Chapter 1: Borrowed Flame' })).toBeVisible();
@@ -257,10 +254,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await page.getByRole('button', { name: 'Send' }).click();
 		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
 
-		await page
-			.getByLabel('Assistant message with actions')
-			.getByRole('button', { name: 'Regenerate' })
-			.click();
+		await page.getByRole('button', { name: 'Regenerate story outline' }).click();
 		await expect(page.getByRole('heading', { name: 'The Lantern Archive' })).toBeVisible();
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
@@ -379,6 +373,48 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 				)
 			)
 		).toBe(true);
+	});
+
+	test('keeps the completed outline tool collapsed while chapters are generated', async ({
+		page
+	}) => {
+		await page.goto('/#/story');
+		await startStoryOutline(page);
+
+		const outlineResponse = page.getByLabel('Assistant message with actions').first();
+		const outlineTool = outlineResponse.getByRole('button', {
+			name: 'submit_story_outline Toggle content'
+		});
+
+		await expect(outlineTool).toHaveAttribute('aria-expanded', 'false');
+
+		let releaseChapter!: () => void;
+		const chapterGate = new Promise<void>((resolve) => {
+			releaseChapter = resolve;
+		});
+		await page.route('**/v1/chat/completions', async (route) => {
+			await chapterGate;
+			await route.continue();
+		});
+		const chapterRequested = page.waitForRequest('**/v1/chat/completions');
+
+		try {
+			await page.getByRole('button', { name: 'Approve story outline' }).click();
+			await chapterRequested;
+			await expect(page.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible();
+			await expect(outlineTool).toHaveAttribute('aria-expanded', 'false');
+			await outlineTool.click();
+			await expect(outlineTool).toHaveAttribute('aria-expanded', 'true');
+			await expect(outlineResponse.getByText('Waiting for result...', { exact: true })).toHaveCount(
+				0
+			);
+			await expect(outlineResponse.locator('.animate-spin')).toHaveCount(0);
+		} finally {
+			releaseChapter();
+		}
+
+		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expect(outlineResponse.locator('.animate-spin')).toHaveCount(0);
 	});
 
 	test('uses approval-message reasoning effort for chapter generation', async ({ page }) => {

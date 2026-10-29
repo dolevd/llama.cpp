@@ -178,7 +178,7 @@
 		{:else}
 			<ChatMessageAgenticContent
 				{isLastAssistantMessage}
-				isStreaming={chatStore.isStreaming()}
+				isStreaming={isLastAssistantMessage && isStreaming}
 				{message}
 				{toolMessages}
 			/>
