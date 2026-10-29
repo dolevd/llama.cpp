@@ -18,7 +18,7 @@
 
 	const carousel = useScrollCarousel();
 
-	let view = $derived(resolveTabView(page, tabsStore.openTabs));
+	let view = $derived(resolveTabView(page, tabsStore.openTabs, conversationsStore.conversations));
 
 	let activeId = $derived(view.activeId);
 

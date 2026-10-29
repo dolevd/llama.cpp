@@ -48,7 +48,8 @@
 		<h1 class="mb-2 text-2xl font-semibold tracking-tight md:text-3xl">{title}</h1>
 
 		<p class="text-muted-foreground md:text-lg">
-			{description ?? `${serverStore.props?.modalities?.audio ? 'Record audio, type a message ' : 'Type a message'} or upload files to get started`}
+			{description ??
+				`${serverStore.props?.modalities?.audio ? 'Record audio, type a message ' : 'Type a message'} or upload files to get started`}
 		</p>
 	</div>
 </div>

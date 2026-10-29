@@ -6,6 +6,7 @@ interface UseDraftMessagesOptions {
 	getChatId: () => string | undefined;
 	getMessage: () => string;
 	getFiles: () => ChatUploadedFile[];
+	getInitialMessage?: () => string;
 	setMessage: (message: string) => void;
 	setFiles: (files: ChatUploadedFile[]) => void;
 }
@@ -23,12 +24,13 @@ export function useDraftMessages(options: UseDraftMessagesOptions) {
 
 	beforeNavigate(() => {
 		const chatId = options.getChatId();
-		const initialMessage = options.getInitialMessage();
+		const initialMessage = options.getInitialMessage?.() ?? '';
 		const message = options.getMessage();
 		const files = options.getFiles();
 
 		if (initialMessage && message === initialMessage && files.length === 0) {
 			draftMessagesStore.clearDraftMessage(chatId);
+
 			return;
 		}
 
@@ -44,7 +46,7 @@ export function useDraftMessages(options: UseDraftMessagesOptions) {
 				options.setMessage(draft.message);
 				options.setFiles(draft.files);
 			} else {
-				options.setMessage(options.getInitialMessage());
+				options.setMessage(options.getInitialMessage?.() ?? '');
 				options.setFiles([]);
 			}
 		}

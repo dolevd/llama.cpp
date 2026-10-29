@@ -1,5 +1,6 @@
 import { NEW_CHAT_TAB_ID, ROUTES } from '$lib/constants';
 import { RouterService } from '$lib/services/router.service';
+import type { DatabaseConversation } from '$lib/types';
 
 interface TabRoute {
 	params: Partial<Record<string, string>>;
@@ -28,11 +29,20 @@ export function resolveTabTarget(page: TabRoute): string | null {
 }
 
 /** Tabs of the current route: every open tab, linked to its chat. */
-export function resolveTabView(page: TabRoute, openTabs: string[]): TabView {
+export function resolveTabView(
+	page: TabRoute,
+	openTabs: string[],
+	conversations: DatabaseConversation[] = []
+): TabView {
 	return {
 		activeId: resolveTabTarget(page),
 		fallbackHref: ROUTES.START,
-		hrefFor: (id) => (id === NEW_CHAT_TAB_ID ? ROUTES.START : RouterService.chat(id)),
+		hrefFor: (id) =>
+			id === NEW_CHAT_TAB_ID
+				? ROUTES.START
+				: RouterService.conversation(
+						conversations.find((conversation) => conversation.id === id) ?? { id }
+					),
 		ids: openTabs
 	};
 }

@@ -1,10 +1,11 @@
-import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 type MockMessage = { content?: unknown };
 type ChatCompletionBody = {
 	chat_template_kwargs?: { enable_thinking?: boolean };
 	messages?: MockMessage[];
+	reasoning_effort?: string;
 	thinking_budget_tokens?: number;
 	tool_choice?: unknown;
 	tools?: unknown;
@@ -15,6 +16,7 @@ type MockState = { chatCompletions: MockRequest[] };
 
 function messageContentIncludes(content: unknown, text: string): boolean {
 	if (typeof content === 'string') return content.includes(text);
+
 	if (!Array.isArray(content)) return false;
 
 	return content.some(
@@ -29,12 +31,13 @@ function messageContentIncludes(content: unknown, text: string): boolean {
 
 async function startStoryOutline(page: Page) {
 	await page.locator('input[type="file"]').setInputFiles({
-		name: 'story-snippet.txt',
+		buffer: Buffer.from("The old road rang like a bell beneath Mira's boots."),
 		mimeType: 'text/plain',
-		buffer: Buffer.from("The old road rang like a bell beneath Mira's boots.")
+		name: 'story-snippet.txt'
 	});
 
 	const textarea = page.getByPlaceholder('Edit the story prompt, then attach context...');
+
 	await expect(textarea).toBeEnabled();
 	await textarea.fill('mock-scenario: story-outline');
 	await page.getByRole('button', { name: 'Send' }).click();
@@ -52,7 +55,7 @@ async function setDefaultReasoningEffort(page: Page, effort: 'low' | 'medium' | 
 async function setReasoningEffort(
 	page: Page,
 	buttonName: RegExp | string,
-	effort: 'Off' | 'Low' | 'Medium' | 'High' | 'Max'
+	effort: 'Off' | 'Low' | 'Medium' | 'High' | 'Max' | 'Extra High'
 ) {
 	await page.getByRole('button', { name: buttonName }).last().click();
 	await page.getByRole('button', { name: new RegExp(`^${effort}\\b`) }).click();
@@ -98,8 +101,8 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 			localStorage.setItem(
 				'LlamaUi.config',
 				JSON.stringify({
-					titleGenerationUseLLM: false,
-					preEncodeConversation: false
+					preEncodeConversation: false,
+					titleGenerationUseLLM: false
 				})
 			);
 		});
@@ -114,17 +117,19 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await expect(page.getByRole('heading', { name: 'Start a story' })).toBeVisible();
 
 		await page.locator('input[type="file"]').setInputFiles({
-			name: 'story-snippet.txt',
+			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots."),
 			mimeType: 'text/plain',
-			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots.")
+			name: 'story-snippet.txt'
 		});
 
 		const textarea = page.getByPlaceholder('Edit the story prompt, then attach context...');
+
 		await expect(textarea).toBeEnabled();
 		await textarea.fill('mock-scenario: story-outline');
 		await page.getByRole('button', { name: 'Send' }).click();
 
 		const userMessage = page.getByLabel('User message with actions').first();
+
 		await expect(userMessage).toContainText('mock-scenario: story-outline');
 		await expect(userMessage).not.toContainText('submit_story_outline');
 
@@ -317,12 +322,13 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await page.goto('/#/story');
 
 		await page.locator('input[type="file"]').setInputFiles({
-			name: 'story-snippet.txt',
+			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots."),
 			mimeType: 'text/plain',
-			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots.")
+			name: 'story-snippet.txt'
 		});
 
 		const textarea = page.getByPlaceholder('Edit the story prompt, then attach context...');
+
 		await textarea.fill('mock-scenario: story-outline before edit');
 		await page.getByRole('button', { name: 'Send' }).click();
 
@@ -333,6 +339,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 			.getByRole('button', { name: 'Edit' })
 			.click();
 		const editTextarea = page.getByPlaceholder('Edit your message...');
+
 		await editTextarea.fill('mock-scenario: story-outline edited');
 		await editTextarea
 			.locator('xpath=ancestor::form')
@@ -379,12 +386,13 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await page.goto('/#/story');
 
 		await page.locator('input[type="file"]').setInputFiles({
-			name: 'story-snippet.txt',
+			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots."),
 			mimeType: 'text/plain',
-			buffer: Buffer.from("The old road rang like a bell beneath Mira's boots.")
+			name: 'story-snippet.txt'
 		});
 
 		const textarea = page.getByPlaceholder('Edit the story prompt, then attach context...');
+
 		await expect(textarea).toBeEnabled();
 		await textarea.fill('mock-scenario: story-outline');
 		await page.getByRole('button', { name: 'Send' }).click();
@@ -466,6 +474,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		const defaultToggle = page
 			.getByRole('button', { name: 'Default Reasoning. Click to configure.' })
 			.last();
+
 		await expect(defaultToggle).toContainText('Default');
 		await defaultToggle.click();
 		await expect(page.getByRole('button', { name: 'Default Model default' })).toBeVisible();
@@ -480,11 +489,60 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		const mockState = await getMockRequests(page);
 		const storyRequests = getStoryRequests(mockState);
 		const chapterRequests = getChapterRequests(mockState);
+
 		expect(storyRequests).toHaveLength(1);
 		expect(storyRequests[0].body.chat_template_kwargs?.enable_thinking).toBeUndefined();
 		expect(chapterRequests).toHaveLength(2);
 		for (const request of chapterRequests) {
 			expect(request.body.chat_template_kwargs?.enable_thinking).toBe(false);
+		}
+	});
+
+	test('uses template reasoning levels on the story card and in chapter requests', async ({
+		page
+	}) => {
+		await page.route(/\/props(?:\?.*)?$/, async (route) => {
+			const response = await route.fetch();
+			const props = await response.json();
+
+			await route.fulfill({
+				json: {
+					...props,
+					chat_template_caps: {
+						reasoning_effort_levels: ['low', 'high', 'xhigh'],
+						supports_reasoning: true,
+						supports_reasoning_effort: true
+					}
+				}
+			});
+		});
+		await setDefaultReasoningEffort(page, 'high');
+		await page.goto('/#/story');
+		await startStoryOutline(page);
+
+		await page.getByRole('button', { name: 'High Reasoning. Click to configure.' }).click();
+		await expect(page.getByRole('button', { exact: true, name: 'Low' })).toBeVisible();
+		await expect(page.getByRole('button', { name: /^Medium\b/ })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: /^Max\b/ })).toHaveCount(0);
+		await page.getByRole('button', { exact: true, name: 'Extra High' }).click();
+		await expect(
+			page.getByRole('button', { name: 'Extra High Reasoning. Click to configure.' })
+		).toContainText('Extra High');
+
+		await page.getByRole('button', { name: 'Approve story outline' }).click();
+		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+
+		const mockState = await getMockRequests(page);
+		const storyRequests = getStoryRequests(mockState);
+		const chapterRequests = getChapterRequests(mockState);
+
+		expect(storyRequests).toHaveLength(1);
+		expect(storyRequests[0].body.reasoning_effort).toBe('high');
+		expect(storyRequests[0].body.thinking_budget_tokens).toBeUndefined();
+		expect(chapterRequests).toHaveLength(2);
+		for (const request of chapterRequests) {
+			expect(request.body.reasoning_effort).toBe('xhigh');
+			expect(request.body.thinking_budget_tokens).toBeUndefined();
 		}
 	});
 });

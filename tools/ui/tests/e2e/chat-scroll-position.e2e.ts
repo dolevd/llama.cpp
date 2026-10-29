@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 /**
  * E2E tests for the per-conversation scroll position memory feature
@@ -31,6 +31,7 @@ async function clearDatabase(page: Page) {
 		(dbName) =>
 			new Promise<void>((resolve, reject) => {
 				const req = indexedDB.deleteDatabase(dbName);
+
 				req.onsuccess = () => resolve();
 				req.onerror = () => reject(req.error);
 				req.onblocked = () => resolve();
@@ -63,19 +64,19 @@ async function seedConversations(
 ): Promise<SeededData> {
 	return await page.evaluate(
 		({
-			dbName,
-			convStore,
-			msgStore,
-			convA,
-			convB,
-			convC,
-			convAName,
-			convBName,
-			convCName,
 			baseTimestamp,
+			convA,
+			convAName,
+			convB,
+			convBName,
+			convC,
+			convCName,
+			convStore,
 			countA,
 			countB,
-			countC
+			countC,
+			dbName,
+			msgStore
 		}: SeedInput) => {
 			return new Promise<SeededData>((resolve, reject) => {
 				// Open without a version: if the DB already exists (e.g. from a
@@ -83,12 +84,15 @@ async function seedConversations(
 				// doesn't, it is created at version 1. The schema (stores) is
 				// the same in both cases, so seeding is unaffected.
 				const open = indexedDB.open(dbName);
+
 				open.onerror = () => reject(open.error);
 				open.onupgradeneeded = () => {
 					const db = open.result;
+
 					if (!db.objectStoreNames.contains(convStore)) {
 						db.createObjectStore(convStore, { keyPath: 'id' });
 					}
+
 					if (!db.objectStoreNames.contains(msgStore)) {
 						db.createObjectStore(msgStore, { keyPath: 'id' });
 					}
@@ -98,42 +102,44 @@ async function seedConversations(
 					const tx = db.transaction([convStore, msgStore], 'readwrite');
 					const cStore = tx.objectStore(convStore);
 					const mStore = tx.objectStore(msgStore);
-
 					const longText = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(10);
 
 					function buildChain(convId: string, count: number, startTs: number) {
 						const messages: unknown[] = [];
 						const rootId = `${convId}-root`;
+
 						messages.push({
-							id: rootId,
+							children: [`${convId}-m0`],
+							content: '',
 							convId,
-							type: 'root',
+							id: rootId,
+							parent: null,
 							role: 'system',
 							timestamp: startTs,
-							content: '',
-							parent: null,
 							toolCalls: '',
-							children: [`${convId}-m0`]
+							type: 'root'
 						});
 
 						let prevId = rootId;
+
 						for (let i = 0; i < count; i++) {
 							const id = `${convId}-m${i}`;
+
 							messages.push({
-								id,
+								children: i < count - 1 ? [`${convId}-m${i + 1}`] : [],
+								content: longText,
 								convId,
-								type: 'text',
+								id,
+								parent: prevId,
 								role: i % 2 === 0 ? 'user' : 'assistant',
 								timestamp: startTs + i + 1,
-								content: longText,
-								parent: prevId,
 								toolCalls: '',
-								children: i < count - 1 ? [`${convId}-m${i + 1}`] : []
+								type: 'text'
 							});
 							prevId = id;
 						}
 
-						return { messages, lastId: prevId };
+						return { lastId: prevId, messages };
 					}
 
 					const chainA = buildChain(convA, countA, baseTimestamp);
@@ -141,25 +147,25 @@ async function seedConversations(
 					const chainC = buildChain(convC, countC, baseTimestamp + 2000);
 
 					cStore.add({
-						id: convA,
-						name: convAName,
-						lastModified: baseTimestamp,
 						currNode: chainA.lastId,
-						mode: 'chat'
+						id: convA,
+						lastModified: baseTimestamp,
+						mode: 'chat',
+						name: convAName
 					});
 					cStore.add({
-						id: convB,
-						name: convBName,
-						lastModified: baseTimestamp + 1000,
 						currNode: chainB.lastId,
-						mode: 'chat'
+						id: convB,
+						lastModified: baseTimestamp + 1000,
+						mode: 'chat',
+						name: convBName
 					});
 					cStore.add({
-						id: convC,
-						name: convCName,
-						lastModified: baseTimestamp + 2000,
 						currNode: chainC.lastId,
-						mode: 'chat'
+						id: convC,
+						lastModified: baseTimestamp + 2000,
+						mode: 'chat',
+						name: convCName
 					});
 
 					for (const m of chainA.messages) mStore.add(m);
@@ -168,26 +174,26 @@ async function seedConversations(
 
 					tx.oncomplete = () => {
 						db.close();
-						resolve({ convA, convB, convC, convAName, convBName, convCName });
+						resolve({ convA, convAName, convB, convBName, convC, convCName });
 					};
 					tx.onerror = () => reject(tx.error);
 				};
 			});
 		},
 		{
-			dbName: DB_NAME,
-			convStore: CONV_STORE,
-			msgStore: MSG_STORE,
-			convA: 'conv-A',
-			convB: 'conv-B',
-			convC: 'conv-C',
-			convAName: `Scroll test conv A ${Date.now()}`,
-			convBName: `Scroll test conv B ${Date.now() + 1}`,
-			convCName: `Scroll test conv C ${Date.now() + 2}`,
 			baseTimestamp: Date.now(),
+			convA: 'conv-A',
+			convAName: `Scroll test conv A ${Date.now()}`,
+			convB: 'conv-B',
+			convBName: `Scroll test conv B ${Date.now() + 1}`,
+			convC: 'conv-C',
+			convCName: `Scroll test conv C ${Date.now() + 2}`,
+			convStore: CONV_STORE,
 			countA,
 			countB,
-			countC
+			countC,
+			dbName: DB_NAME,
+			msgStore: MSG_STORE
 		}
 	);
 }
@@ -204,6 +210,7 @@ async function scrollByWheelAndAssertSticks(
 	deltaY: number
 ) {
 	const before = await container.evaluate((el) => el.scrollTop);
+
 	await container.hover();
 	await page.mouse.wheel(0, deltaY);
 	await expect
@@ -211,6 +218,7 @@ async function scrollByWheelAndAssertSticks(
 		.not.toBe(before);
 	await page.waitForTimeout(1000);
 	const target = await container.evaluate((el) => el.scrollTop);
+
 	// Sample again to make sure the auto-scroll doesn't snap us back to
 	// the bottom a few frames after the wheel scroll.
 	await page.waitForTimeout(300);
@@ -261,6 +269,7 @@ test.describe('Chat scroll position memory', () => {
 		// changes the container's `scrollHeight` and the auto-scroll would
 		// fire if the new guard didn't hold it back.
 		const seed = await seedConversations(page, 90, 75, 60);
+
 		await page.reload();
 		await expect(page.locator('h1', { hasText: /Hello there/ })).toBeVisible();
 
@@ -268,11 +277,13 @@ test.describe('Chat scroll position memory', () => {
 		const itemA = sidebar.locator('button', { hasText: seed.convAName });
 		const itemB = sidebar.locator('button', { hasText: seed.convBName });
 		const itemC = sidebar.locator('button', { hasText: seed.convCName });
+
 		await expect(itemA).toBeVisible();
 		await expect(itemB).toBeVisible();
 		await expect(itemC).toBeVisible();
 
 		const container = page.locator(SCROLL_CONTAINER);
+
 		await expect(container).toBeVisible();
 
 		// Open A and wait for the message list to be tall enough to scroll
@@ -283,6 +294,19 @@ test.describe('Chat scroll position memory', () => {
 			.poll(async () => await container.evaluate((el) => el.scrollHeight), { timeout: 10000 })
 			.toBeGreaterThan(4000);
 		await expectAtBottom(container);
+
+		await container.hover();
+		await page.mouse.wheel(0, -8);
+		await expect
+			.poll(
+				async () =>
+					await container.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)
+			)
+			.toBeGreaterThan(0);
+		const smallScrollTarget = await getScrollTop(container);
+
+		await page.waitForTimeout(350);
+		expect(await getScrollTop(container)).toBe(smallScrollTarget);
 
 		// Scroll A near the beginning of the conversation. This is the
 		// position we expect to be restored on return.
@@ -338,6 +362,7 @@ test.describe('Chat scroll position memory', () => {
 		await expect(page.locator('h1', { hasText: /Hello there/ })).toBeVisible();
 
 		const seed = await seedConversations(page, 90, 75, 60);
+
 		await page.reload();
 		await expect(page.locator('h1', { hasText: /Hello there/ })).toBeVisible();
 
@@ -345,11 +370,13 @@ test.describe('Chat scroll position memory', () => {
 		const itemA = sidebar.locator('button', { hasText: seed.convAName });
 		const itemB = sidebar.locator('button', { hasText: seed.convBName });
 		const itemC = sidebar.locator('button', { hasText: seed.convCName });
+
 		await expect(itemA).toBeVisible();
 		await expect(itemB).toBeVisible();
 		await expect(itemC).toBeVisible();
 
 		const container = page.locator(SCROLL_CONTAINER);
+
 		await expect(container).toBeVisible();
 
 		// Open A, scroll it deep into the middle, then navigate to B without

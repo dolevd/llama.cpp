@@ -75,6 +75,7 @@
 	const { clearDraft } = useDraftMessages({
 		getChatId: () => draftKey ?? chatId,
 		getFiles: () => uploadedFiles,
+		getInitialMessage: () => initialMessage,
 		getMessage: () => message,
 		setFiles: (f) => (uploadedFiles = f),
 		setMessage: (m) => (message = m)
@@ -166,12 +167,12 @@
 		class="mx-auto max-w-3xl {className}"
 		{disabled}
 		{isLoading}
-		{placeholder}
-		{requireAttachmentToSubmit}
 		onFilesAdd={handleFilesAdd}
 		{onStop}
 		onSubmit={handleSubmit}
 		onSystemPromptClick={handleSystemPromptClick}
 		onUploadedFileRemove={handleUploadedFileRemove}
+		{placeholder}
+		{requireAttachmentToSubmit}
 	/>
 </div>

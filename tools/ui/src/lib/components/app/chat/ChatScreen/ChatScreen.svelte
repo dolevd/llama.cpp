@@ -37,7 +37,7 @@
 	} from '$lib/stores';
 	import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types';
 	import { parseFilesToMessageExtras } from '$lib/utils/browser-only';
-	import { tick, untrack, type Snippet } from 'svelte';
+	import { type Snippet, tick, untrack } from 'svelte';
 
 	let {
 		composerDisabled = false,
@@ -51,7 +51,6 @@
 		onStop,
 		placeholder,
 		requireAttachmentToSubmit = false,
-		resetKey = 'chat',
 		showCenteredEmpty = false
 	} = $props<{
 		composerDisabled?: boolean;
@@ -65,7 +64,6 @@
 		onStop?: () => Promise<void> | void;
 		placeholder?: string;
 		requireAttachmentToSubmit?: boolean;
-		resetKey?: string;
 		showCenteredEmpty?: boolean;
 	}>();
 
@@ -97,10 +95,10 @@
 	// the bottom, and otherwise leaves their position alone.
 	const stick = createStickToBottom();
 	const scrollPosition = useChatScrollPosition({
-		stick,
-		getConversationId: () => conversationsStore.activeConversation?.id ?? null,
 		getContainer: () => document.documentElement,
-		getDisableAutoScroll: () => settingsStore.config.disableAutoScroll
+		getConversationId: () => conversationsStore.activeConversation?.id ?? null,
+		getDisableAutoScroll: () => settingsStore.config.disableAutoScroll,
+		stick
 	});
 	let stickPin: HTMLDivElement | undefined = $state();
 	const activeModel = useChatScreenActiveModel();
@@ -166,18 +164,11 @@
 		return true;
 	}
 
-	// Every navigation lands anew: this screen outlives its routes, so coming
-	// back to the conversation it last landed on (via the new-chat screen)
-	// must not count as already landed. The landing also owns the scroll
-	// position, so SvelteKit's own reset (or restore, on back/forward) would
-	// only move the previous conversation, still on screen, to its top.
+	// Saved positions own chat scrolling; skip SvelteKit's scroll reset.
 	onNavigate((navigation) => {
 		if (navigation.to?.params?.id) disableScrollHandling();
 	});
 
-	// Lands at the bottom of a conversation the first time its messages render.
-	// The resize observer keeps it there while the list settles (lazy rows,
-	// syntax highlighting, images) without polling for a stable height.
 	async function handleMessagesReady(messageCount: number) {
 		if (messageCount === 0) return;
 
@@ -266,9 +257,9 @@
 <svelte:window
 	onkeydown={handleWindowKeydown}
 	onpointerdown={scrollPosition.handlePointerIntent}
+	onscroll={scrollPosition.handleScroll}
 	ontouchstart={scrollPosition.handlePointerIntent}
 	onwheel={scrollPosition.markUserScrollIntent}
-	onscroll={scrollPosition.handleScroll}
 />
 
 {#if isServerLoading}
@@ -284,7 +275,10 @@
 		role="main"
 	>
 		{#if !isEmpty}
-			<ChatMessages messages={conversationsStore.activeMessages} onMessagesReady={handleMessagesReady}>
+			<ChatMessages
+				messages={conversationsStore.activeMessages}
+				onMessagesReady={handleMessagesReady}
+			>
 				{#snippet afterMessage(message)}
 					{#if messageAddons}
 						{@render messageAddons(message)}
@@ -316,7 +310,11 @@
 					: ''
 			]}
 		>
-			<ChatScreenGreeting description={greetingDescription} isEmpty={isFormCentered} title={greetingTitle} />
+			<ChatScreenGreeting
+				description={greetingDescription}
+				isEmpty={isFormCentered}
+				title={greetingTitle}
+			/>
 
 			<ChatScreenServerError />
 
@@ -331,21 +329,21 @@
 			</div>
 
 			{#if !hideComposer}
-			<ChatScreenForm
-				bind:uploadedFiles={fileUpload.uploadedFiles}
-				class="pointer-events-auto conversation-chat-form"
-				disabled={hasPropsError || chatStore.isEditing() || composerDisabled}
-				{draftKey}
-				{initialMessage}
-				isLoading={isCurrentConversationLoading}
-				onFileRemove={fileUpload.handleFileRemove}
-				onFileUpload={fileUpload.handleFileUpload}
-				onSend={handleSendMessage}
-				onStop={() => (onStop ? onStop() : chatStore.stopGeneration())}
-				onSystemPromptAdd={handleSystemPromptAdd}
-				{placeholder}
-				{requireAttachmentToSubmit}
-			/>
+				<ChatScreenForm
+					bind:uploadedFiles={fileUpload.uploadedFiles}
+					class="pointer-events-auto conversation-chat-form"
+					disabled={hasPropsError || chatStore.isEditing() || composerDisabled}
+					{draftKey}
+					{initialMessage}
+					isLoading={isCurrentConversationLoading}
+					onFileRemove={fileUpload.handleFileRemove}
+					onFileUpload={fileUpload.handleFileUpload}
+					onSend={handleSendMessage}
+					onStop={() => (onStop ? onStop() : chatStore.stopGeneration())}
+					onSystemPromptAdd={handleSystemPromptAdd}
+					{placeholder}
+					{requireAttachmentToSubmit}
+				/>
 			{/if}
 		</div>
 	</div>

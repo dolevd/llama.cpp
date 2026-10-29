@@ -87,7 +87,6 @@
 		onStop={() => storyStore.stopGeneration()}
 		placeholder="Edit the story prompt, then attach context..."
 		requireAttachmentToSubmit={isStoryStart}
-		resetKey={draftKey}
 		{showCenteredEmpty}
 	>
 		{#snippet messageAddons(message)}

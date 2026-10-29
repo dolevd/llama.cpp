@@ -1,6 +1,7 @@
 import { beforeNavigate } from '$app/navigation';
 import type { StickToBottom } from '$lib/hooks/use-stick-to-bottom.svelte';
 import { onDestroy, untrack } from 'svelte';
+import { SvelteMap } from 'svelte/reactivity';
 
 interface ChatScrollPositionOptions {
 	stick: StickToBottom;
@@ -12,7 +13,8 @@ interface ChatScrollPositionOptions {
 const SCROLL_SETTLE_DELAYS = [0, 50, 150, 350, 750];
 const SCROLL_POSITION_BOTTOM_THRESHOLD = 64;
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-const scrollPositions = new Map<string, number>();
+const scrollPositions = new SvelteMap<string, number>();
+
 type ScrollTargetGetter = (container: HTMLElement) => number;
 
 function saveScrollPosition(convId: string, scrollTop: number): void {
@@ -28,10 +30,10 @@ function pruneScrollPosition(convId: string): void {
 }
 
 export function useChatScrollPosition({
-	stick,
-	getConversationId,
 	getContainer,
-	getDisableAutoScroll
+	getConversationId,
+	getDisableAutoScroll,
+	stick
 }: ChatScrollPositionOptions) {
 	let activeConversationId: string | null = $state(null);
 	let initializingConversationId: string | null = null;
@@ -41,19 +43,24 @@ export function useChatScrollPosition({
 
 	function isScrolledToBottom() {
 		const container = getContainer();
+
 		if (!container) return true;
 
-		const { scrollTop, scrollHeight, clientHeight } = container;
+		const { clientHeight, scrollHeight, scrollTop } = container;
+
 		return scrollHeight - clientHeight - scrollTop < SCROLL_POSITION_BOTTOM_THRESHOLD;
 	}
 
 	function rememberScrollPosition(convId: string | null, overwrite = true) {
 		const container = getContainer();
+
 		if (!convId || !container) return;
+
 		if (!overwrite && getScrollPosition(convId) !== undefined) return;
 
 		if (isScrolledToBottom()) {
 			pruneScrollPosition(convId);
+
 			return;
 		}
 
@@ -66,12 +73,6 @@ export function useChatScrollPosition({
 		if (userScrollIntentTimeout) {
 			clearTimeout(userScrollIntentTimeout);
 		}
-
-		requestAnimationFrame(() => {
-			if (userScrollIntent) {
-				stick.handleScroll();
-			}
-		});
 
 		userScrollIntentTimeout = setTimeout(() => {
 			userScrollIntent = false;
@@ -97,6 +98,7 @@ export function useChatScrollPosition({
 	function handlePointerIntent(event: PointerEvent | TouchEvent) {
 		if (isInsideContainer(event.target)) {
 			markUserScrollIntent();
+
 			return;
 		}
 
@@ -105,11 +107,13 @@ export function useChatScrollPosition({
 
 	function isEditableElement(target: EventTarget | null) {
 		const element = target instanceof HTMLElement ? target : null;
+
 		return Boolean(element?.closest('input, textarea, [contenteditable="true"]'));
 	}
 
 	function isInsideContainer(target: EventTarget | null) {
 		const container = getContainer();
+
 		return Boolean(container && target instanceof Node && container.contains(target));
 	}
 
@@ -117,11 +121,7 @@ export function useChatScrollPosition({
 		stick.handleScroll();
 
 		if (userScrollIntent) {
-			stick.handleScroll();
 			markUserScrollIntent();
-		}
-
-		if (userScrollIntent) {
 			rememberScrollPosition(activeConversationId);
 		}
 	}
@@ -135,15 +135,18 @@ export function useChatScrollPosition({
 		window.setTimeout(() => {
 			requestAnimationFrame(() => {
 				const container = getContainer();
+
 				if (!container || getConversationId() !== currentId) return;
 
 				if (userScrollIntent) {
 					finishRestore(currentId);
+
 					return;
 				}
 
 				if (shouldStop?.()) {
 					finishRestore(currentId);
+
 					return;
 				}
 
@@ -152,6 +155,7 @@ export function useChatScrollPosition({
 
 				if (attempt < SCROLL_SETTLE_DELAYS.length - 1) {
 					settleScrollPosition(currentId, getTarget, shouldStop, attempt + 1);
+
 					return;
 				}
 
@@ -166,7 +170,6 @@ export function useChatScrollPosition({
 		}
 
 		isRestoring = false;
-		stick.handleScroll();
 		stick.setEnabled(!getDisableAutoScroll());
 	}
 
@@ -175,19 +178,12 @@ export function useChatScrollPosition({
 
 		requestAnimationFrame(() => {
 			const container = getContainer();
-			if (
-				!container ||
-				getConversationId() !== currentId ||
-				userScrollIntent ||
-				!stick.stick
-			) {
+
+			if (!container || getConversationId() !== currentId || userScrollIntent || !stick.stick) {
 				return;
 			}
 
-			stick.setEnabled(!getDisableAutoScroll());
-			container.scrollTop = container.scrollHeight;
-			stick.handleScroll();
-			stick.setEnabled(!getDisableAutoScroll());
+			stick.scrollToBottom();
 		});
 	}
 
@@ -199,31 +195,36 @@ export function useChatScrollPosition({
 
 		if (initializingConversationId !== currentId) {
 			handleCurrentConversationMessagesReady(currentId);
+
 			return;
 		}
 
 		requestAnimationFrame(() => {
 			const container = getContainer();
+
 			if (!container || getConversationId() !== currentId) return;
 
 			const saved = getScrollPosition(currentId);
+
 			if (saved !== undefined) {
 				isRestoring = true;
 				stick.setEnabled(false);
-			stick.stick = false;
+				stick.stick = false;
 				container.scrollTop = saved;
 				settleScrollPosition(currentId, () => saved);
+
 				return;
 			}
 
 			if (getDisableAutoScroll()) {
 				finishRestore(currentId);
+
 				return;
 			}
 
 			isRestoring = true;
 			stick.setEnabled(!getDisableAutoScroll());
-			container.scrollTop = container.scrollHeight;
+			stick.scrollToBottom();
 			settleScrollPosition(
 				currentId,
 				(container) => container.scrollHeight,
@@ -247,6 +248,7 @@ export function useChatScrollPosition({
 			if (!isRestoring) {
 				rememberScrollPosition(activeConversationId, false);
 			}
+
 			clearUserScrollIntent();
 			isRestoring = true;
 			activeConversationId = id;
@@ -259,9 +261,9 @@ export function useChatScrollPosition({
 	onDestroy(clearUserScrollIntent);
 
 	return {
-		handlePointerIntent,
 		handleKeyboardScrollIntent,
 		handleMessagesReady,
+		handlePointerIntent,
 		handleScroll,
 		markUserScrollIntent
 	};

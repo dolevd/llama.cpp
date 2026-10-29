@@ -62,8 +62,8 @@ import {
 	notifyResponseReady,
 	requestResponseNotificationPermission,
 	resolveChatRequestProfile,
-	sliceAtLastCompaction,
-	type ResolvedRequestProfile
+	type ResolvedRequestProfile,
+	sliceAtLastCompaction
 } from '$lib/utils';
 import { SvelteMap } from 'svelte/reactivity';
 
@@ -81,69 +81,29 @@ interface RequestProfileCompletionParams {
 }
 
 class ChatStore implements ChatStreamHost, ChatFlowsHost {
-	private requestProfileCompletionHandlers = new Map<
-		MessageRequestProfile['kind'],
-		(params: RequestProfileCompletionParams) => Promise<void> | void
-	>();
-
-	registerRequestProfileCompletionHandler(
-		kind: MessageRequestProfile['kind'],
-		handler: (params: RequestProfileCompletionParams) => Promise<void> | void
-	): void {
-		this.requestProfileCompletionHandlers.set(kind, handler);
-	}
-
-	private async notifyRequestProfileComplete(
-		resolved: ResolvedRequestProfile | undefined,
-		assistantMessage: DatabaseMessage
-	): Promise<void> {
-		if (!resolved) return;
-		const handler = this.requestProfileCompletionHandlers.get(resolved.profile.kind);
-		if (!handler) return;
-
-		try {
-			await handler({
-				assistantMessage,
-				profile: resolved.profile,
-				userMessage: resolved.userMessage
-			});
-		} catch (error) {
-			console.error('Request profile completion handler failed:', error);
-		}
-	}
-
-	private responseNotificationsEnabled(): boolean {
-		return settingsStore.config.enableResponseNotifications !== false;
-	}
-
-	private requestResponseNotificationPermission(): void {
-		requestResponseNotificationPermission(this.responseNotificationsEnabled());
-	}
-
-	notifyResponseReady(): void {
-		notifyResponseReady(this.responseNotificationsEnabled());
-	}
-
-	notifyResponseFailed(): void {
-		notifyResponseFailed(this.responseNotificationsEnabled());
-	}
-
 	chatReasoningStates = new SvelteMap<string, boolean>();
+
 	chatStreamingStates = new SvelteMap<
 		string,
 		{ response: string; messageId: string; model?: string | null }
 	>();
+
 	errorDialogState = $state<ErrorDialogState | null>(null);
+
 	// true while the active conversation has a local pipe (send, attach or resume-wait)
 	isLoading = $derived(this.activity.isLocal(conversationsStore.activeConversation?.id ?? ''));
+
 	// true while the active conversation streams reasoning content but no visible content yet
 	isReasoning = $derived(
 		this.chatReasoningStates.get(conversationsStore.activeConversation?.id ?? '') ?? false
 	);
+
 	pendingEditMessageId = $state<string | null>(null);
+
 	// resumable stream connection state for the active conversation
 	// streaming -> bytes flowing normally, resuming -> waiting on /v1/stream reconnect, lost -> unrecoverable
 	streamConnectionState = $state<StreamConnectionState>(StreamConnectionState.STREAMING);
+
 	private abortControllers = new SvelteMap<string, AbortController>();
 	private addFilesHandler: ((files: File[]) => void) | null = $state(null);
 	// message flows: edit, regenerate, continue, delete
@@ -155,20 +115,20 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		{ content: string; extras?: DatabaseMessageExtra[] }
 	>();
 	private preEncodeAbortController: AbortController | null = null;
-
+	private requestProfileCompletionHandlers = new Map<
+		MessageRequestProfile['kind'],
+		(params: RequestProfileCompletionParams) => Promise<void> | void
+	>();
 	// server-side stream sessions: discovery, attach/replay, resume retry, remote sync
 	private streams = new ChatStreamManager(this);
-
 	/** Conv activity (local pipe / remote session), composed here. */
 	get activity() {
 		return chatActivityStore;
 	}
-
 	/** Processing state, composed here so consumers have a single chat scope. */
 	get processing() {
 		return chatProcessingStore;
 	}
-
 	/**
 	 * Abort the current agentic flow signal without clearing loading state.
 	 * Used by "Send immediately" to force the agentic loop to exit so that
@@ -188,7 +148,6 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			this.abortControllers.delete(convId);
 		}
 	}
-
 	async addMessage(
 		role: MessageRole,
 		content: string,
@@ -307,6 +266,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			console.error('Failed to add system prompt:', error);
 		}
 	}
+
 	cancelPreEncode(): void {
 		if (this.preEncodeAbortController) {
 			this.preEncodeAbortController.abort();
@@ -331,6 +291,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		this.clearChatStreaming(convId);
 		this.processing.setState(convId, null);
 	}
+
 	clearChatStreaming(convId: string, messageId?: string): void {
 		// session aware: a stale generation must not wipe a newer one's streaming state on the
 		// same conversation, that would drop the frozen stop identity and stop the wrong session
@@ -342,15 +303,14 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 		this.chatStreamingStates.delete(convId);
 	}
+
 	clearEditMode(): void {
 		this.isEditModeActive = false;
 		this.addFilesHandler = null;
 	}
-
 	clearPendingEditMessageId(): void {
 		this.pendingEditMessageId = null;
 	}
-
 	clearPendingMessage(convId: string): void {
 		this.pendingMessages.delete(convId);
 	}
@@ -419,12 +379,11 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 		return msg;
 	}
-
 	async continueAssistantMessage(messageId: string): Promise<void> {
 		this.requestResponseNotificationPermission();
+
 		return this.flows.continueAssistantMessage(messageId);
 	}
-
 	async createAssistantMessage(parentId?: string): Promise<DatabaseMessage> {
 		const activeConv = conversationsStore.activeConversation;
 
@@ -475,6 +434,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		newExtras?: DatabaseMessageExtra[]
 	): Promise<void> {
 		this.requestResponseNotificationPermission();
+
 		return this.flows.editMessageWithBranching(messageId, newContent, newExtras);
 	}
 
@@ -484,6 +444,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		newExtras?: DatabaseMessageExtra[]
 	): Promise<void> {
 		this.requestResponseNotificationPermission();
+
 		return this.flows.editUserMessagePreserveResponses(messageId, newContent, newExtras);
 	}
 
@@ -496,7 +457,10 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		return this.activity.loadingConvs;
 	}
 
-	getApiOptions(targetConversation?: DatabaseConversation | null, targetModel?: string | null): Record<string, unknown> {
+	getApiOptions(
+		targetConversation?: DatabaseConversation | null,
+		targetModel?: string | null
+	): Record<string, unknown> {
 		const currentConfig = settingsStore.config;
 		const hasValue = (value: unknown): boolean =>
 			value !== undefined && value !== null && value !== '';
@@ -520,10 +484,10 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		const effort = modelsStore.props.resolveReasoningEffort(
 			modelId,
 			targetConversation
-				? targetConversation.reasoningEffort ??
-					(targetConversation.thinkingEnabled === false
-						? ReasoningEffort.OFF
-						: conversationsStore.preferences.pendingReasoningEffort)
+				? (targetConversation.reasoningEffort ??
+						(targetConversation.thinkingEnabled === false
+							? ReasoningEffort.OFF
+							: conversationsStore.preferences.pendingReasoningEffort))
 				: conversationsStore.preferences.getReasoningEffort()
 		);
 		const budgetTokens = REASONING_EFFORT_TOKENS[effort];
@@ -671,6 +635,14 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		return this.chatStreamingStates.has(conversationsStore.activeConversation?.id ?? '');
 	}
 
+	notifyResponseFailed(): void {
+		notifyResponseFailed(this.responseNotificationsEnabled());
+	}
+
+	notifyResponseReady(): void {
+		notifyResponseReady(this.responseNotificationsEnabled());
+	}
+
 	/**
 	 * Record a working-directory change into chat history as a synthetic
 	 * user message, so the model sees it on its next turn (the client
@@ -741,12 +713,21 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 	async regenerateMessage(messageId: string): Promise<void> {
 		this.requestResponseNotificationPermission();
+
 		return this.flows.regenerateMessage(messageId);
 	}
 
 	async regenerateMessageWithBranching(messageId: string, modelOverride?: string): Promise<void> {
 		this.requestResponseNotificationPermission();
+
 		return this.flows.regenerateMessageWithBranching(messageId, modelOverride);
+	}
+
+	registerRequestProfileCompletionHandler(
+		kind: MessageRequestProfile['kind'],
+		handler: (params: RequestProfileCompletionParams) => Promise<void> | void
+	): void {
+		this.requestProfileCompletionHandlers.set(kind, handler);
 	}
 
 	async removeSystemPromptPlaceholder(messageId: string): Promise<boolean> {
@@ -798,8 +779,13 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		}
 	}
 
-	async sendMessage(content: string, extras?: DatabaseMessageExtra[], options: SendMessageOptions = {}): Promise<void> {
+	async sendMessage(
+		content: string,
+		extras?: DatabaseMessageExtra[],
+		options: SendMessageOptions = {}
+	): Promise<void> {
 		if (!content.trim() && (!extras || extras.length === 0)) return;
+
 		this.requestResponseNotificationPermission();
 
 		const activeConv = conversationsStore.activeConversation;
@@ -808,6 +794,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				? activeConv
 				: await DatabaseService.getConversation(options.conversationId)
 			: activeConv;
+
 		if (options.conversationId && !targetConv) throw new Error('Conversation not found');
 
 		// If agentic loop is running, inject as a steering message instead of starting a new flow
@@ -830,8 +817,10 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		// Consume MCP resource attachments - converts them to extras and clears the live store
 		const resourceExtras = mcpStore.consumeResourceAttachmentsAsExtras();
 		const allExtras = resourceExtras.length > 0 ? [...(extras || []), ...resourceExtras] : extras;
+
 		if (targetConv && targetConv.id !== activeConv?.id) {
 			await this.sendMessageToInactiveConversation(targetConv, content, allExtras, options);
+
 			return;
 		}
 
@@ -911,10 +900,11 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				assistantMessage,
 				options.onComplete
 					? async () => {
-						const messages = await DatabaseService.getConversationMessages(currentConv.id);
-						const completed = messages.find((message) => message.id === assistantMessage.id);
-						if (completed) await options.onComplete?.(completed);
-					}
+							const messages = await DatabaseService.getConversationMessages(currentConv.id);
+							const completed = messages.find((message) => message.id === assistantMessage.id);
+
+							if (completed) await options.onComplete?.(completed);
+						}
 					: undefined,
 				undefined,
 				undefined,
@@ -944,62 +934,6 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				message: error instanceof Error ? error.message : 'Unknown error',
 				type: dialogType
 			});
-		}
-	}
-
-	private async sendMessageToInactiveConversation(
-		conversation: DatabaseConversation,
-		content: string,
-		extras: DatabaseMessageExtra[] | undefined,
-		options: SendMessageOptions
-	): Promise<void> {
-		const allMessages = await DatabaseService.getConversationMessages(conversation.id);
-		const path = filterByLeafNodeId(allMessages, conversation.currNode ?? '', false) as DatabaseMessage[];
-		const parentId = path[path.length - 1]?.id ?? await DatabaseService.createRootMessage(conversation.id);
-		const userMessage = await DatabaseService.createMessageBranch(
-			{
-				children: [],
-				content,
-				convId: conversation.id,
-				extra: extras,
-				requestProfile: options.requestProfile ? { ...options.requestProfile } : undefined,
-				role: MessageRole.USER,
-				timestamp: Date.now(),
-				toolCalls: '',
-				type: MessageType.TEXT
-			},
-			parentId
-		);
-		const assistantMessage = await DatabaseService.createMessageBranch(
-			{
-				children: [],
-				content: '',
-				convId: conversation.id,
-				model: null,
-				role: MessageRole.ASSISTANT,
-				timestamp: Date.now(),
-				toolCalls: '',
-				type: MessageType.TEXT
-			},
-			userMessage.id
-		);
-		await DatabaseService.updateCurrentNode(conversation.id, assistantMessage.id);
-		conversationsStore.updateConversationTimestamp(conversation.id);
-		this.setChatLoading(conversation.id, true);
-		try {
-			await this.streamChatCompletion(
-				[...path, userMessage],
-				assistantMessage,
-				options.onComplete
-					? async () => {
-						const messages = await DatabaseService.getConversationMessages(conversation.id);
-						const completed = messages.find((message) => message.id === assistantMessage.id);
-						if (completed) await options.onComplete?.(completed);
-					}
-					: undefined
-			);
-		} finally {
-			this.setChatLoading(conversation.id, false);
 		}
 	}
 
@@ -1076,6 +1010,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 	): Promise<void> {
 		const resolvedRequestProfile = resolveChatRequestProfile(allMessages);
 		const requestMessages = resolvedRequestProfile?.messages ?? allMessages;
+
 		// the ::model suffix in the stream identity is only for router mode, where it routes to the
 		// owning child. in single-model mode the identity stays the bare conv id so that attach, stop
 		// and reattach all agree, regardless of fresh send vs regenerate passing a resolved model
@@ -1084,6 +1019,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		if (serverStore.isRouterMode) {
 			const conversationModel = getConversationModel(allMessages);
 			const activeConversationId = conversationsStore.activeConversation?.id;
+
 			effectiveModel =
 				modelOverride ||
 				(activeConversationId === assistantMessage.convId
@@ -1121,7 +1057,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			conversationsStore.activeConversation?.id === convId
 				? conversationsStore.activeConversation
 				: await DatabaseService.getConversation(convId);
-		const apiOptions = this.getApiOptions(targetConversation);
+		const apiOptions = this.getApiOptions(targetConversation, effectiveModel);
 
 		// Tracks the last message created in this flow. Used as the parent for the next
 		// turn's assistant message so createAssistantMessage does not have to read
@@ -1411,7 +1347,10 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			}
 		};
 		const toolPolicy = targetConversation
-			? { disabledToolCategories: targetConversation.disabledToolCategories, disabledTools: targetConversation.disabledTools }
+			? {
+					disabledToolCategories: targetConversation.disabledToolCategories,
+					disabledTools: targetConversation.disabledTools
+				}
 			: this.toolPolicy();
 
 		if (!resolvedRequestProfile?.disableAgentic) {
@@ -1432,6 +1371,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				if (!agenticResult.error && !abortController.signal.aborted) {
 					this.notifyResponseReady();
 				}
+
 				// Generate LLM based title for new conversations after agentic flow completes
 				if (firstUserMessageContent) {
 					await this.generateTitleWithLLM(firstUserMessageContent, streamedContent, convId);
@@ -1492,6 +1432,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 					} else {
 						await DatabaseService.updateCurrentNode(convId, currentMessageId);
 					}
+
 					cleanupStreamingState();
 					this.notifyResponseReady();
 					await this.notifyRequestProfileComplete(resolvedRequestProfile, {
@@ -1637,6 +1578,27 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		return this.chatStreamingStates.get(convId);
 	}
 
+	private async notifyRequestProfileComplete(
+		resolved: ResolvedRequestProfile | undefined,
+		assistantMessage: DatabaseMessage
+	): Promise<void> {
+		if (!resolved) return;
+
+		const handler = this.requestProfileCompletionHandlers.get(resolved.profile.kind);
+
+		if (!handler) return;
+
+		try {
+			await handler({
+				assistantMessage,
+				profile: resolved.profile,
+				userMessage: resolved.userMessage
+			});
+		} catch (error) {
+			console.error('Request profile completion handler failed:', error);
+		}
+	}
+
 	/**
 	 * Pre-encodes the branch ending at the leaf as the next turn reads it: the
 	 * stored path cut at its last compaction, with the tools, message shaping
@@ -1663,6 +1625,14 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			signal,
 			request.tools
 		);
+	}
+
+	private requestResponseNotificationPermission(): void {
+		requestResponseNotificationPermission(this.responseNotificationsEnabled());
+	}
+
+	private responseNotificationsEnabled(): boolean {
+		return settingsStore.config.enableResponseNotifications !== false;
 	}
 
 	private async savePartialResponseIfNeeded(convId?: string): Promise<void> {
@@ -1738,6 +1708,69 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 			lastMessage.content = partialContent;
 			lastMessage.toolCalls = '';
 			console.error('Failed to save partial response:', error);
+		}
+	}
+
+	private async sendMessageToInactiveConversation(
+		conversation: DatabaseConversation,
+		content: string,
+		extras: DatabaseMessageExtra[] | undefined,
+		options: SendMessageOptions
+	): Promise<void> {
+		const allMessages = await DatabaseService.getConversationMessages(conversation.id);
+		const path = filterByLeafNodeId(
+			allMessages,
+			conversation.currNode ?? '',
+			false
+		) as DatabaseMessage[];
+		const parentId =
+			path[path.length - 1]?.id ?? (await DatabaseService.createRootMessage(conversation.id));
+		const userMessage = await DatabaseService.createMessageBranch(
+			{
+				children: [],
+				content,
+				convId: conversation.id,
+				extra: extras,
+				requestProfile: options.requestProfile ? { ...options.requestProfile } : undefined,
+				role: MessageRole.USER,
+				timestamp: Date.now(),
+				toolCalls: '',
+				type: MessageType.TEXT
+			},
+			parentId
+		);
+		const assistantMessage = await DatabaseService.createMessageBranch(
+			{
+				children: [],
+				content: '',
+				convId: conversation.id,
+				model: null,
+				role: MessageRole.ASSISTANT,
+				timestamp: Date.now(),
+				toolCalls: '',
+				type: MessageType.TEXT
+			},
+			userMessage.id
+		);
+
+		await DatabaseService.updateCurrentNode(conversation.id, assistantMessage.id);
+		conversationsStore.updateConversationTimestamp(conversation.id);
+		this.setChatLoading(conversation.id, true);
+		try {
+			await this.streamChatCompletion(
+				[...path, userMessage],
+				assistantMessage,
+				options.onComplete
+					? async () => {
+							const messages = await DatabaseService.getConversationMessages(conversation.id);
+							const completed = messages.find((message) => message.id === assistantMessage.id);
+
+							if (completed) await options.onComplete?.(completed);
+						}
+					: undefined
+			);
+		} finally {
+			this.setChatLoading(conversation.id, false);
 		}
 	}
 

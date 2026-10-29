@@ -40,7 +40,11 @@ export class TabsStore {
 
 	/** Navigate to a tab (the new-chat sentinel maps to the bare `#/` route) */
 	async activate(id: string): Promise<void> {
-		await goto(this.hrefFor(id));
+		await goto(
+			id === NEW_CHAT_TAB_ID
+				? ROUTES.START
+				: RouterService.conversation((await DatabaseService.getConversation(id)) ?? { id })
+		);
 	}
 
 	/** Remove all tabs (e.g. after deleting all conversations) */

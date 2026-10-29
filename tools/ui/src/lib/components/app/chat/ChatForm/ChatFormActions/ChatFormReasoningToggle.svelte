@@ -44,27 +44,30 @@
 	<DropdownMenu.Root bind:open={subOpen}>
 		<Tooltip.Root>
 			<Tooltip.Trigger>
-				<DropdownMenu.Trigger
-					aria-label={`${tooltipText}. Click to configure.`}
-					class={[
-						'flex cursor-pointer items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-						showLabel ? 'h-8 w-auto gap-2 rounded-md px-2.5 text-sm' : 'h-6 w-6 rounded-full p-0',
-						isReasoningActive ? 'bg-amber-400/10 hover:bg-amber-400/20' : 'bg-muted',
-						className
-					]}
-				>
-					{#if isReasoningActive}
-						<Lightbulb class="h-3 w-3 text-amber-400" />
-					{:else}
-						<LightbulbOff class="h-3 w-3 text-muted-foreground" />
-					{/if}
+				{#snippet child({ props })}
+					<DropdownMenu.Trigger
+						{...props}
+						aria-label={`${tooltipText}. Click to configure.`}
+						class={[
+							'flex cursor-pointer items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+							showLabel ? 'h-8 w-auto gap-2 rounded-md px-2.5 text-sm' : 'h-6 w-6 rounded-full p-0',
+							isReasoningActive ? 'bg-amber-400/10 hover:bg-amber-400/20' : 'bg-muted',
+							className
+						]}
+					>
+						{#if isReasoningActive}
+							<Lightbulb class="h-3 w-3 text-amber-400" />
+						{:else}
+							<LightbulbOff class="h-3 w-3 text-muted-foreground" />
+						{/if}
 
-					{#if showLabel}
-						<span>{label}</span>
+						{#if showLabel}
+							<span>{label}</span>
 
-						<span class="text-muted-foreground">{effortLabel}</span>
-					{/if}
-				</DropdownMenu.Trigger>
+							<span class="text-muted-foreground">{effortLabel}</span>
+						{/if}
+					</DropdownMenu.Trigger>
+				{/snippet}
 			</Tooltip.Trigger>
 
 			<Tooltip.Content>

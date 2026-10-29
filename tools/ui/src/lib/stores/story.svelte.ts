@@ -34,190 +34,8 @@ class StoryGenerationStoppedError extends Error {
 
 class StoryStore {
 	private activeChapterStops = new Map<string, () => void>();
-	private stoppedConversationIds = new Set<string>();
 	private requestProfileHandlerRegistered = false;
-
-	ensureRequestProfileCompletionHandler(): void {
-		if (this.requestProfileHandlerRegistered) return;
-
-		chatStore.registerRequestProfileCompletionHandler('story_outline', ({ assistantMessage }) =>
-			this.captureOutline(assistantMessage)
-		);
-		this.requestProfileHandlerRegistered = true;
-	}
-
-	private createBaseStory(prompt: string, phase: StoryMetadata['phase']): StoryMetadata {
-		return {
-			initialPrompt: prompt,
-			phase,
-			updatedAt: Date.now()
-		};
-	}
-
-	private async persistStory(conversationId: string, story: StoryMetadata): Promise<StoryMetadata> {
-		const nextStory = {
-			...story,
-			updatedAt: Date.now()
-		};
-		const outlineMessageId = nextStory.initialAssistantMessageId;
-
-		if (!outlineMessageId) {
-			await conversationsStore.updateConversationStory(conversationId, nextStory);
-
-			return nextStory;
-		}
-
-		await DatabaseService.updateMessage(outlineMessageId, { story: nextStory });
-
-		if (conversationsStore.activeConversation?.id === conversationId) {
-			const messageIndex = conversationsStore.findMessageIndex(outlineMessageId);
-
-			if (messageIndex !== -1) {
-				conversationsStore.updateMessageAtIndex(messageIndex, { story: nextStory });
-			}
-		}
-
-		const conversation =
-			conversationsStore.activeConversation?.id === conversationId
-				? conversationsStore.activeConversation
-				: await DatabaseService.getConversation(conversationId);
-		const legacyStory = conversation?.story;
-
-		if (
-			legacyStory &&
-			(!legacyStory.initialAssistantMessageId ||
-				legacyStory.initialAssistantMessageId === outlineMessageId)
-		) {
-			await conversationsStore.updateConversationStory(conversationId, undefined);
-		}
-
-		return nextStory;
-	}
-
-	private getActiveStory(): StoryMetadata | undefined {
-		return getActiveStoryMetadata(
-			conversationsStore.activeConversation,
-			conversationsStore.activeMessages
-		);
-	}
-
-	private async activateOutlineBranch(conversationId: string, story: StoryMetadata): Promise<void> {
-		if (
-			!story.initialAssistantMessageId ||
-			conversationsStore.activeConversation?.id !== conversationId
-		) {
-			return;
-		}
-
-		await conversationsStore.updateCurrentNode(story.initialAssistantMessageId);
-		await conversationsStore.refreshActiveMessages();
-	}
-
-	private async captureOutline(assistantMessage: DatabaseMessage): Promise<void> {
-		const conversation = await DatabaseService.getConversation(assistantMessage.convId);
-
-		if (!conversation) return;
-
-		const messages = await DatabaseService.getConversationMessages(assistantMessage.convId);
-		const userMessage = messages.find((message) => message.id === assistantMessage.parent);
-
-		if (!userMessage) return;
-
-		const prompt = userMessage.content;
-		const legacyStory = conversation.story;
-		const baseStory =
-			assistantMessage.story ??
-			(legacyStory &&
-			(!legacyStory.initialAssistantMessageId ||
-				legacyStory.initialAssistantMessageId === assistantMessage.id)
-				? legacyStory
-				: this.createBaseStory(prompt, 'outline_generating'));
-		const nextStory = storyMetadataFromOutlineMessage(assistantMessage, prompt, {
-			...baseStory,
-			initialUserMessageId: userMessage.id
-		});
-
-		if (!nextStory) return;
-
-		if (nextStory.phase === 'error') {
-			await this.persistStory(conversation.id, nextStory);
-			toast.error('Story outline could not be parsed', {
-				description: nextStory.error
-			});
-
-			return;
-		}
-
-		await this.persistStory(conversation.id, nextStory);
-		await conversationsStore.updateConversationName(conversation.id, nextStory.title!);
-
-		toast.info('Story outline ready for approval');
-		notifyStoryApprovalNeeded(responseNotificationsEnabled());
-	}
-
-	private async generateChapter(
-		conversationId: string,
-		prompt: string
-	): Promise<DatabaseMessage | undefined> {
-		return new Promise((resolve, reject) => {
-			let settled = false;
-
-			const settle = (message?: DatabaseMessage) => {
-				if (settled) return;
-
-				settled = true;
-				this.activeChapterStops.delete(conversationId);
-				resolve(message);
-			};
-
-			this.activeChapterStops.set(conversationId, () => settle());
-
-			chatStore
-				.sendMessage(prompt, undefined, {
-					conversationId,
-					onComplete: (assistantMessage) => settle(assistantMessage)
-				})
-				.then(() => {
-					if (this.stoppedConversationIds.has(conversationId)) settle();
-				})
-				.catch((error) => {
-					this.activeChapterStops.delete(conversationId);
-					reject(error);
-				});
-		});
-	}
-
-	async startOutline(prompt: string, extras?: DatabaseMessageExtra[]): Promise<void> {
-		let conversationId = conversationsStore.activeConversation?.id;
-
-		if (!conversationId) {
-			conversationId = await conversationsStore.createConversation(undefined, undefined, { mode: 'story' });
-		}
-
-		this.stoppedConversationIds.delete(conversationId);
-		await this.persistStory(conversationId, this.createBaseStory(prompt, 'outline_generating'));
-
-		await chatStore.sendMessage(prompt, extras, {
-			conversationId,
-			mode: 'story',
-			requestProfile: STORY_OUTLINE_REQUEST_PROFILE
-		});
-	}
-
-	async sendMessage(prompt: string, extras?: DatabaseMessageExtra[]): Promise<void> {
-		await chatStore.sendMessage(prompt, extras);
-	}
-
-	async regenerateOutline(storyOverride?: StoryMetadata): Promise<void> {
-		const activeConversation = conversationsStore.activeConversation;
-		const story = storyOverride ?? this.getActiveStory();
-
-		if (!activeConversation || !story?.initialAssistantMessageId || !story.initialPrompt) return;
-
-		await this.activateOutlineBranch(activeConversation.id, story);
-
-		await chatStore.regenerateMessageWithBranching(story.initialAssistantMessageId);
-	}
+	private stoppedConversationIds = new Set<string>();
 
 	async approveOutline(outlineText: string, storyOverride?: StoryMetadata): Promise<void> {
 		const activeConversation = conversationsStore.activeConversation;
@@ -329,6 +147,49 @@ class StoryStore {
 		}
 	}
 
+	ensureRequestProfileCompletionHandler(): void {
+		if (this.requestProfileHandlerRegistered) return;
+
+		chatStore.registerRequestProfileCompletionHandler('story_outline', ({ assistantMessage }) =>
+			this.captureOutline(assistantMessage)
+		);
+		this.requestProfileHandlerRegistered = true;
+	}
+
+	async regenerateOutline(storyOverride?: StoryMetadata): Promise<void> {
+		const activeConversation = conversationsStore.activeConversation;
+		const story = storyOverride ?? this.getActiveStory();
+
+		if (!activeConversation || !story?.initialAssistantMessageId || !story.initialPrompt) return;
+
+		await this.activateOutlineBranch(activeConversation.id, story);
+
+		await chatStore.regenerateMessageWithBranching(story.initialAssistantMessageId);
+	}
+
+	async sendMessage(prompt: string, extras?: DatabaseMessageExtra[]): Promise<void> {
+		await chatStore.sendMessage(prompt, extras);
+	}
+
+	async startOutline(prompt: string, extras?: DatabaseMessageExtra[]): Promise<void> {
+		let conversationId = conversationsStore.activeConversation?.id;
+
+		if (!conversationId) {
+			conversationId = await conversationsStore.createConversation(undefined, undefined, {
+				mode: 'story'
+			});
+		}
+
+		this.stoppedConversationIds.delete(conversationId);
+		await this.persistStory(conversationId, this.createBaseStory(prompt, 'outline_generating'));
+
+		await chatStore.sendMessage(prompt, extras, {
+			conversationId,
+			mode: 'story',
+			requestProfile: STORY_OUTLINE_REQUEST_PROFILE
+		});
+	}
+
 	async stopGeneration(): Promise<void> {
 		const activeConversation = conversationsStore.activeConversation;
 
@@ -347,6 +208,147 @@ class StoryStore {
 				phase: 'stopped'
 			});
 		}
+	}
+
+	private async activateOutlineBranch(conversationId: string, story: StoryMetadata): Promise<void> {
+		if (
+			!story.initialAssistantMessageId ||
+			conversationsStore.activeConversation?.id !== conversationId
+		) {
+			return;
+		}
+
+		await conversationsStore.updateCurrentNode(story.initialAssistantMessageId);
+		await conversationsStore.refreshActiveMessages();
+	}
+
+	private async captureOutline(assistantMessage: DatabaseMessage): Promise<void> {
+		const conversation = await DatabaseService.getConversation(assistantMessage.convId);
+
+		if (!conversation) return;
+
+		const messages = await DatabaseService.getConversationMessages(assistantMessage.convId);
+		const userMessage = messages.find((message) => message.id === assistantMessage.parent);
+
+		if (!userMessage) return;
+
+		const prompt = userMessage.content;
+		const legacyStory = conversation.story;
+		const baseStory =
+			assistantMessage.story ??
+			(legacyStory &&
+			(!legacyStory.initialAssistantMessageId ||
+				legacyStory.initialAssistantMessageId === assistantMessage.id)
+				? legacyStory
+				: this.createBaseStory(prompt, 'outline_generating'));
+		const nextStory = storyMetadataFromOutlineMessage(assistantMessage, prompt, {
+			...baseStory,
+			initialUserMessageId: userMessage.id
+		});
+
+		if (!nextStory) return;
+
+		if (nextStory.phase === 'error') {
+			await this.persistStory(conversation.id, nextStory);
+			toast.error('Story outline could not be parsed', {
+				description: nextStory.error
+			});
+
+			return;
+		}
+
+		await this.persistStory(conversation.id, nextStory);
+		await conversationsStore.updateConversationName(conversation.id, nextStory.title!);
+
+		toast.info('Story outline ready for approval');
+		notifyStoryApprovalNeeded(responseNotificationsEnabled());
+	}
+
+	private createBaseStory(prompt: string, phase: StoryMetadata['phase']): StoryMetadata {
+		return {
+			initialPrompt: prompt,
+			phase,
+			updatedAt: Date.now()
+		};
+	}
+
+	private async generateChapter(
+		conversationId: string,
+		prompt: string
+	): Promise<DatabaseMessage | undefined> {
+		return new Promise((resolve, reject) => {
+			let settled = false;
+
+			const settle = (message?: DatabaseMessage) => {
+				if (settled) return;
+
+				settled = true;
+				this.activeChapterStops.delete(conversationId);
+				resolve(message);
+			};
+
+			this.activeChapterStops.set(conversationId, () => settle());
+
+			chatStore
+				.sendMessage(prompt, undefined, {
+					conversationId,
+					onComplete: (assistantMessage) => settle(assistantMessage)
+				})
+				.then(() => {
+					if (this.stoppedConversationIds.has(conversationId)) settle();
+				})
+				.catch((error) => {
+					this.activeChapterStops.delete(conversationId);
+					reject(error);
+				});
+		});
+	}
+
+	private getActiveStory(): StoryMetadata | undefined {
+		return getActiveStoryMetadata(
+			conversationsStore.activeConversation,
+			conversationsStore.activeMessages
+		);
+	}
+
+	private async persistStory(conversationId: string, story: StoryMetadata): Promise<StoryMetadata> {
+		const nextStory = {
+			...story,
+			updatedAt: Date.now()
+		};
+		const outlineMessageId = nextStory.initialAssistantMessageId;
+
+		if (!outlineMessageId) {
+			await conversationsStore.updateConversationStory(conversationId, nextStory);
+
+			return nextStory;
+		}
+
+		await DatabaseService.updateMessage(outlineMessageId, { story: nextStory });
+
+		if (conversationsStore.activeConversation?.id === conversationId) {
+			const messageIndex = conversationsStore.findMessageIndex(outlineMessageId);
+
+			if (messageIndex !== -1) {
+				conversationsStore.updateMessageAtIndex(messageIndex, { story: nextStory });
+			}
+		}
+
+		const conversation =
+			conversationsStore.activeConversation?.id === conversationId
+				? conversationsStore.activeConversation
+				: await DatabaseService.getConversation(conversationId);
+		const legacyStory = conversation?.story;
+
+		if (
+			legacyStory &&
+			(!legacyStory.initialAssistantMessageId ||
+				legacyStory.initialAssistantMessageId === outlineMessageId)
+		) {
+			await conversationsStore.updateConversationStory(conversationId, undefined);
+		}
+
+		return nextStory;
 	}
 }
 

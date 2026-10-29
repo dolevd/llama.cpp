@@ -271,7 +271,8 @@ class ConversationsStore implements ConversationsPreferencesHost {
 		options: { mode?: ConversationMode } = {}
 	): Promise<string> {
 		const mode = options.mode ?? 'chat';
-		const conversationName = name || `${mode === 'story' ? 'Story' : 'Chat'} ${new Date().toLocaleString()}`;
+		const conversationName =
+			name || `${mode === 'story' ? 'Story' : 'Chat'} ${new Date().toLocaleString()}`;
 		// The tool policy is seeded from the current defaults: edits made inside
 		// the conversation afterwards live on its row and do not flow back into
 		// the defaults. Working directory picked on the new-chat screen gets
