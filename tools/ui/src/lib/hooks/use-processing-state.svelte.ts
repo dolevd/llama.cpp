@@ -54,6 +54,10 @@ export function useProcessingState(): UseProcessingStateReturn {
 
 	// Track last known processing stats for when promptProgress disappears
 	$effect(() => {
+		if (!processingState) {
+			lastKnownProcessingStats = null;
+		}
+
 		if (processingState?.promptProgress) {
 			const { cache, processed, time_ms, total } = processingState.promptProgress;
 			const actualProcessed = processed - cache;
@@ -243,13 +247,14 @@ export function useProcessingState(): UseProcessingStateReturn {
 	 * Returns a short progress message with percent
 	 */
 	function getPromptProgressText(): string | null {
-		if (!processingState?.promptProgress) return null;
+		if (!processingState?.promptProgress || processingState.progressPercent === undefined)
+			return null;
 
-		const { cache, processed, total } = processingState.promptProgress;
+		const { cache, processed, time_ms, total } = processingState.promptProgress;
+		const percent = processingState.progressPercent;
 		const actualProcessed = processed - cache;
 		const actualTotal = total - cache;
-		const percent = Math.round((actualProcessed / actualTotal) * 100);
-		const eta = getETASecs(actualProcessed, actualTotal, processingState.promptProgress.time_ms);
+		const eta = getETASecs(actualProcessed, actualTotal, time_ms);
 
 		if (eta !== undefined) {
 			const etaSecs = Math.ceil(eta);

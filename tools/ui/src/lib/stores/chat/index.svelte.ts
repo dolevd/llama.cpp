@@ -1008,6 +1008,8 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		modelOverride?: string | null,
 		firstUserMessageContent?: string
 	): Promise<void> {
+		this.processing.setState(assistantMessage.convId, null);
+
 		const resolvedRequestProfile = resolveChatRequestProfile(allMessages);
 		const requestMessages = resolvedRequestProfile?.messages ?? allMessages;
 

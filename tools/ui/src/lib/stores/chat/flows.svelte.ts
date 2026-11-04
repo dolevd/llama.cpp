@@ -288,10 +288,8 @@ export class ChatMessageFlows {
 					);
 
 					await conversationsStore.updateCurrentNode(findLeafNode(allMessages, latestSibling.id));
-				} else if (messageToDelete.parent) {
-					await conversationsStore.updateCurrentNode(
-						findLeafNode(allMessages, messageToDelete.parent)
-					);
+				} else {
+					await conversationsStore.updateCurrentNode(messageToDelete.parent);
 				}
 			}
 

@@ -65,6 +65,12 @@ async function getMockRequests(page: Page): Promise<MockState> {
 	return page.request.get('/__mock/requests').then((response) => response.json());
 }
 
+async function expectClockworkChaptersComplete(page: Page) {
+	await expect(
+		page.getByRole('button', { name: 'Chapter 2: Roots Of Glass, generated' })
+	).toBeVisible();
+}
+
 function getStoryRequests(mockState: MockState): MockRequestWithBody[] {
 	return mockState.chatCompletions.filter(
 		(entry): entry is MockRequestWithBody =>
@@ -173,7 +179,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
 		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
-		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expectClockworkChaptersComplete(page);
 
 		const mockState = await page.request
 			.get('/__mock/requests')
@@ -236,6 +242,33 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 				)
 			).toBe(true);
 		}
+	});
+
+	test('keeps the original prompt selected when its only outline is deleted', async ({ page }) => {
+		await page.goto('/#/story');
+		await startStoryOutline(page);
+		const prompt = page.getByLabel('User message with actions');
+
+		await prompt.getByRole('button', { name: 'Edit' }).click();
+		const edit = page.getByPlaceholder('Edit your message...');
+
+		await edit.fill('mock-scenario: story-outline edited');
+		await edit.locator('xpath=ancestor::form').getByRole('button', { name: 'Send' }).click();
+		await expect(page.getByRole('heading', { name: 'The Lantern Archive' })).toBeVisible();
+		await prompt.getByRole('button', { name: 'Previous version' }).click();
+		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
+
+		const response = page.getByLabel('Assistant message with actions');
+
+		await response.getByRole('button', { name: 'Delete' }).click();
+		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+		await expect(response).toHaveCount(0);
+		await expect(prompt).toContainText('mock-scenario: story-outline');
+		await expect(prompt).not.toContainText('edited');
+		await page.reload();
+		await expect(prompt.getByRole('button', { name: 'Edit' })).toBeVisible();
+		await expect(prompt).not.toContainText('edited');
+		await expect(response).toHaveCount(0);
 	});
 
 	test('keeps chapter outlines and response targets separate across approved branches', async ({
@@ -327,6 +360,9 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		await page.getByRole('button', { name: 'Send' }).click();
 
 		await expect(page.getByRole('heading', { name: 'The Clockwork Orchard' })).toBeVisible();
+		const response = page.getByLabel('Assistant message with actions');
+
+		await expect(response.getByRole('button', { name: '40.00 t/s' })).toBeVisible();
 
 		await page
 			.getByLabel('User message with actions')
@@ -340,7 +376,10 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 			.getByRole('button', { name: 'Send' })
 			.click();
 
+		await expect(response.getByText('Processing 100%', { exact: true })).toBeVisible();
+		await expect(response.getByRole('button', { name: '40.00 t/s' })).toHaveCount(0);
 		await expect(page.getByRole('heading', { name: 'The Lantern Archive' })).toBeVisible();
+		await expect(response.getByRole('button', { name: '20.00 t/s' })).toBeVisible();
 		await expect(page.getByLabel('User message with actions')).toContainText(
 			'mock-scenario: story-outline edited'
 		);
@@ -413,7 +452,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 			releaseChapter();
 		}
 
-		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expectClockworkChaptersComplete(page);
 		await expect(outlineResponse.locator('.animate-spin')).toHaveCount(0);
 	});
 
@@ -443,7 +482,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		).toBeVisible();
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
-		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expectClockworkChaptersComplete(page);
 
 		const mockState = await getMockRequests(page);
 		const storyRequests = getStoryRequests(mockState);
@@ -479,7 +518,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		).toBeVisible();
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
-		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expectClockworkChaptersComplete(page);
 
 		const mockState = await getMockRequests(page);
 		const storyRequests = getStoryRequests(mockState);
@@ -520,7 +559,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		).toContainText('Off');
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
-		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expectClockworkChaptersComplete(page);
 
 		const mockState = await getMockRequests(page);
 		const storyRequests = getStoryRequests(mockState);
@@ -566,7 +605,7 @@ test.describe('Story outline branching with mock llama.cpp server', () => {
 		).toContainText('Extra High');
 
 		await page.getByRole('button', { name: 'Approve story outline' }).click();
-		await expect(page.getByText('This is a mock streaming response.').first()).toBeVisible();
+		await expectClockworkChaptersComplete(page);
 
 		const mockState = await getMockRequests(page);
 		const storyRequests = getStoryRequests(mockState);

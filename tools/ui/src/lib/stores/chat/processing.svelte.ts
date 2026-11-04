@@ -85,7 +85,11 @@ export class ChatProcessingStore {
 		// overridden by pre-compaction numbers.
 		const message = lastContextBearingMessage(messages);
 
-		if (!message?.timings) return;
+		if (!message?.timings) {
+			this.setState(conversationId, null);
+
+			return;
+		}
 
 		this.setState(
 			conversationId,
@@ -159,9 +163,15 @@ export class ChatProcessingStore {
 		const progressCache = promptProgress?.cache || 0,
 			progressActualDone = (promptProgress?.processed ?? 0) - progressCache,
 			progressActualTotal = (promptProgress?.total ?? 0) - progressCache;
-		const progressPercent = promptProgress
-			? Math.round((progressActualDone / progressActualTotal) * 100)
-			: undefined;
+
+		let progressPercent: number | undefined;
+
+		if (promptProgress) {
+			progressPercent =
+				progressActualTotal > 0
+					? Math.round((progressActualDone / progressActualTotal) * 100)
+					: 100;
+		}
 
 		return {
 			cacheTokens,

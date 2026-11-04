@@ -76,6 +76,9 @@ const scenarios = {
 		})
 	},
 	storyOutlineB: {
+		delayMs: 500,
+		promptProgress: { cache: 12, processed: 12, time_ms: 0, total: 12 },
+		tokenMs: 50,
 		toolCalls: buildStoryOutlineToolCallChunks('call_story_outline_2', {
 			title: 'The Lantern Archive',
 			summary: 'A courier carries a stolen lantern through a library that remembers futures.',
@@ -252,7 +255,7 @@ async function streamChatCompletion(res, body, scenario) {
 		created: Math.floor(Date.now() / 1000),
 		model,
 		choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
-		prompt_progress: { progress: 1, processed: 1, total: 1 }
+		prompt_progress: scenario.promptProgress ?? { cache: 0, processed: 1, time_ms: 1, total: 1 }
 	});
 
 	for (const reasoningChunk of scenario.reasoning ?? []) {
@@ -263,8 +266,11 @@ async function streamChatCompletion(res, body, scenario) {
 
 	for (const toolCall of scenario.toolCalls ?? []) {
 		predicted++;
-		await delay(90);
-		writeSse(res, buildChunk({ id, model, toolCalls: [toolCall], predicted }));
+		await delay(scenario.delayMs ?? 90);
+		writeSse(
+			res,
+			buildChunk({ id, model, predicted, tokenMs: scenario.tokenMs, toolCalls: [toolCall] })
+		);
 	}
 
 	for (const contentChunk of scenario.content ?? []) {
@@ -280,13 +286,13 @@ async function streamChatCompletion(res, body, scenario) {
 		created: Math.floor(Date.now() / 1000),
 		model,
 		choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-		timings: buildTimings(predicted)
+		timings: buildTimings(predicted, scenario.tokenMs)
 	});
 	res.write('data: [DONE]\n\n');
 	res.end();
 }
 
-function buildChunk({ id, model, content, reasoningContent, toolCalls, predicted }) {
+function buildChunk({ id, model, content, reasoningContent, toolCalls, predicted, tokenMs }) {
 	return {
 		id,
 		object: 'chat.completion.chunk',
@@ -303,16 +309,16 @@ function buildChunk({ id, model, content, reasoningContent, toolCalls, predicted
 				finish_reason: null
 			}
 		],
-		timings: buildTimings(predicted)
+		timings: buildTimings(predicted, tokenMs)
 	};
 }
 
-function buildTimings(predicted) {
+function buildTimings(predicted, tokenMs = 25) {
 	return {
 		prompt_n: 12,
 		prompt_ms: 8,
 		predicted_n: predicted,
-		predicted_ms: Math.max(predicted * 25, 1),
+		predicted_ms: Math.max(predicted * tokenMs, 1),
 		cache_n: 0
 	};
 }
